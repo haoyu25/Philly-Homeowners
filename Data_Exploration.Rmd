@@ -1,46 +1,37 @@
+# Install necessary libraries
+```{r}
+library(dplyr)
+library(ggplot2)
+library(tidyverse)
+library(caret)
+library(knitr) 
+library(pscl)
+library(plotROC)
+library(pROC)
+library(scales)
+options(scipen = 999)
+root.dir = "https://raw.githubusercontent.com/urbanSpatial/Public-Policy-Analytics-Landing/master/DATA/"
+source("https://raw.githubusercontent.com/urbanSpatial/Public-Policy-Analytics-Landing/master/functions.r")
+```
 
+# Main Property Dataset
 ```{r}
 properties <- read.csv("opa_properties_public.csv")
-comlicenses <- read.csv("com_act_licenses.csv")
-assessments <- read.csv("assessments.csv")
-transfers <- read.csv("RTT_SUMMARY.csv")
-library(dplyr)
-
-
-head(comlicenses, 10)
-colnames(comlicenses)
-check <- as.data.frame(table(comlicenses$ownercontact1mailingaddress))
-comlicensesaddress <- comlicenses %>% mutate_all(na_if,"")
-comlicensesaddress <- comlicenses
-comlicensesaddress[comlicensesaddress == ""] <- NA
-sum(is.na(comlicensesaddress$ownercontact1mailingaddress))
-checkah <- as.data.frame(table(comlicensesaddress$ownercontact1mailingaddress))
-
-#properties
 colnames(properties)
 table(properties$homestead_exemption)
 length(which(properties$homestead_exemption==0))
 length(which(properties$homestead_exemption==100000))
 sum(is.na(properties$homestead_exemption))
-options(scipen = 999)
+
 max(properties$homestead_exemption)
 which(properties$homestead_exemption == max(properties$homestead_exemption))
 properties[566284, ]
 
-
+# to send to Maggy White
 length(which(properties$homestead_exemption>100000))
-library(dplyr)
 propertiesfiltered <- properties %>% filter(homestead_exemption >100000)
 write.csv(propertiesfiltered, file = "properties_exceeding_exemption.csv")
 
-
-
-
-
-
-
-
-library(ggplot2)
 ggplot(properties, aes(y = homestead_exemption)) + 
   geom_boxplot()
 
@@ -62,11 +53,6 @@ mean(propertieshomestead$total_livable_area, na.rm = TRUE)
 median(propertieshomestead$total_livable_area, na.rm = TRUE)
 mean(propertiesNOThomestead$total_livable_area, na.rm = TRUE)
 median(propertiesNOThomestead$total_livable_area, na.rm = TRUE)
-
-
-
-
-properties$pin
 
 
 ggplot(propertieshomestead, aes(x=market_value)) + 
@@ -93,30 +79,11 @@ ggplot(filtered_properties, aes(x = zoning, fill = homestead_group)) +
   theme_minimal() +
   theme(axis.text.x = element_text(angle = 45, hjust = 1))
 
-#past assessments
-colnames(assessments)
-head(assessments, 10)
 
-#transfers
-colnames(transfers)
-table(transfers$document_type)
+```
 
-
-
-##mini model
-root.dir = "https://raw.githubusercontent.com/urbanSpatial/Public-Policy-Analytics-Landing/master/DATA/"
-source("https://raw.githubusercontent.com/urbanSpatial/Public-Policy-Analytics-Landing/master/functions.r")
-library(caret)
-options(scipen=10000000)
-
-library(tidyverse)
-library(caret)
-library(knitr) 
-library(pscl)
-library(plotROC)
-library(pROC)
-library(scales)
-
+# Preliminary Logit Regression Model
+```{r}
 properties_model <- properties %>%
   mutate(exemption = ifelse(homestead_exemption == 0, 0, 1))
 table(properties_model$exemption)
@@ -137,11 +104,7 @@ testProbs <- data.frame(Outcome = as.factor(churnTest$exemption),
 
 
 summary(churnreg1)
-
 pR2(churnreg1)[4]
-
-
-head(testProbs)
 
 ggplot(testProbs, aes(x = Probs, fill = as.factor(Outcome))) + 
   geom_density() +
@@ -168,7 +131,48 @@ ggplot(testProbs, aes(d = as.numeric(testProbs$Outcome), m = Probs)) +
   geom_abline(slope = 1, intercept = 0, size = 1.5, color = 'grey') +
   labs(title = "ROC Curve - churnModel")
 
+```
 
+
+# Commercial Activity Licenses Dataset
+
+```{r}
+comlicenses <- read.csv("com_act_licenses.csv")
+head(comlicenses, 10)
+colnames(comlicenses)
+check <- as.data.frame(table(comlicenses$ownercontact1mailingaddress))
+comlicensesaddress <- comlicenses %>% mutate_all(na_if,"")
+comlicensesaddress <- comlicenses
+comlicensesaddress[comlicensesaddress == ""] <- NA
+sum(is.na(comlicensesaddress$ownercontact1mailingaddress))
+checkah <- as.data.frame(table(comlicensesaddress$ownercontact1mailingaddress))
+
+```
+
+# Assessment History
+```{r}
+assessments <- read.csv("assessments.csv")
+colnames(assessments)
+head(assessments, 10)
+
+```
+
+
+
+
+# Property Transfers
+```{r}
+transfers <- read.csv("RTT_SUMMARY.csv")
+colnames(transfers)
+table(transfers$document_type)
+
+```
+
+
+
+# Tax balances
+```{r}
+balances <- read.csv("real_estate_tax_balances_zip_code.csv")
 
 ```
 
