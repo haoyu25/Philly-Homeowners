@@ -1,0 +1,247 @@
+# Install necessary libraries
+```{r}
+library(dplyr)
+library(ggplot2)
+library(tidyverse)
+library(caret)
+library(knitr) 
+library(pscl)
+library(plotROC)
+library(pROC)
+library(scales)
+options(scipen = 999)
+root.dir = "https://raw.githubusercontent.com/urbanSpatial/Public-Policy-Analytics-Landing/master/DATA/"
+source("https://raw.githubusercontent.com/urbanSpatial/Public-Policy-Analytics-Landing/master/functions.r")
+```
+
+# Main Property Dataset
+```{r}
+properties <- read.csv("opa_properties_public.csv")
+tail(properties, 10)
+colnames(properties)
+filtered_properties <- properties %>%
+  mutate(exemption = ifelse(homestead_exemption == 0, 0, 1))
+filtered_properties <- filtered_properties %>% mutate(is_residential = ifelse(zoning %in% c("RSA1", "RSA2", "RSA3", "RSA4", "RSA5", "RM1", "RM1|RSA5", "RM2", "RM3", "RM4","CMX1", "CMX2", "CMX2.5","CMX3", "CMX4", "CMX5","IRMX"), 1, 0))
+filtered_properties <- filtered_properties %>% mutate(same_address = ifelse(mailing_street == location, 1, 0))
+filtered_properties <- filtered_properties %>% mutate(likely_loop = ifelse(exempt_building > 0 & exemption == 0, 1, 0))
+filtered_properties <- filtered_properties %>% mutate(is_deep = ifelse(depth >300, 1, 0)) 
+
+properties_comlicences_taxbalance <- read.csv("Data/Variables/properties_comlicenses_taxbalance.csv")
+properties_comlicences_taxbalance <- properties_comlicences_taxbalance %>% mutate(com_potential_bin = ifelse(com_potential == TRUE, 1, 0)) %>% select(-com_potential)
+
+combined <- left_join(filtered_properties, properties_comlicences_taxbalance, by = "objectid")
+combined <- combined %>% mutate(com_potential_final = ifelse(com_potential_bin == 1, 1, 0))
+combined <- combined %>% mutate(avg_balance_final = ifelse(com_potential_bin == 1, 1, 0))
+
+filtered_properties <- filtered_properties %>% 
+properties_model <- filtered_properties
+set.seed(3456)
+trainIndex <- createDataPartition(properties_model$exemption, p = .50,
+                                  list = FALSE,
+                                  times = 1)
+churnTrain <- properties_model[ trainIndex,]
+churnTest  <- properties_model[-trainIndex,]
+
+churnreg1 <- glm(exemption ~ .,
+                 data=churnTrain %>% 
+                   dplyr::select(market_value, total_area, zip_code, geographic_ward, is_residential, same_address, likely_loop, is_deep, exemption),
+                 family="binomial" (link="logit"))
+testProbs <- data.frame(Outcome = as.factor(churnTest$exemption),
+                        Probs = predict(churnreg1, churnTest, type= "response"))
+summary(churnreg1)
+pR2(churnreg1)[4]
+
+ggplot(testProbs, aes(x = Probs, fill = as.factor(Outcome))) + 
+  geom_density() +
+  facet_grid(Outcome ~ .) +
+  scale_fill_discrete() + xlim(0, 1) +
+  labs(x = "Homestead Exemption", y = "Density of probabilities",
+       title = "Distribution of predicted probabilities by observed outcome") +
+  plotTheme() + theme(strip.text.x = element_text(size = 18),
+                      legend.position = "none")
+
+testProbs <- 
+  testProbs %>%
+  mutate(predOutcome  = as.factor(ifelse(testProbs$Probs > 0.5 , 1, 0)))
+
+head(testProbs)
+
+caret::confusionMatrix(testProbs$predOutcome, testProbs$Outcome, 
+                       positive = "1")
+
+#looking at predicted to have exemption but did not have exemption, which is false negative
+ggplot(testProbs, aes(d = as.numeric(testProbs$Outcome), m = Probs)) +
+  geom_roc(n.cuts = 50, labels = FALSE, colour = "#FE9900") +
+  style_roc(theme = theme_grey) +
+  geom_abline(slope = 1, intercept = 0, size = 1.5, color = 'grey') +
+  labs(title = "ROC Curve - churnModel")
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+# for reference only
+```{r}
+# load in dataset
+properties <- read.csv("opa_properties_public.csv")
+colnames(properties)
+
+#Data exploration of properties with and without a homestead exemption 
+table(properties$homestead_exemption)
+length(which(properties$homestead_exemption==0))
+length(which(properties$homestead_exemption==100000))
+sum(is.na(properties$homestead_exemption))
+
+# Boxplot of homestead exemptions
+ggplot(properties, aes(y = homestead_exemption)) + 
+  geom_boxplot()
+
+# Filtering to properties exceeding $100,000 in homestead exemption to send to Maggy White
+length(which(properties$homestead_exemption>100000))
+propertiesfiltered <- properties %>% filter(homestead_exemption >100000)
+write.csv(propertiesfiltered, file = "properties_exceeding_exemption.csv")
+
+propertieshomestead <- properties %>% filter(homestead_exemption != 0)
+propertiesNOThomestead <- properties %>% filter(homestead_exemption == 0)
+propertieshomestead$exceed <- ifelse(propertieshomestead$homestead_exemption > 100000, "exceed", "within")
+table(propertieshomestead$exceed)
+
+# Comparing mean and median of properties with and without a homestead exemption
+mean(propertieshomestead$market_value, na.rm = TRUE)
+median(propertieshomestead$market_value, na.rm = TRUE)
+mean(propertieshomestead$sale_price, na.rm = TRUE)
+median(propertieshomestead$sale_price, na.rm = TRUE)
+
+
+ggplot(propertieshomestead, aes(x=market_value)) + 
+  geom_histogram(color="black", fill="white", bins = 100)
+
+ggplot(propertiesNOThomestead, aes(x=market_value)) + 
+  geom_histogram(color="black", fill="white", bins = 100)
+
+filtered_properties <- properties %>%
+  mutate(homestead_group = ifelse(homestead_exemption == 0, "No Exemption", "With Exemption"))
+filtered_properties <- properties %>%
+  mutate(exemption = ifelse(homestead_exemption == 0, 0, 1))
+
+
+# ZONING / CATEGORY CODE
+table(propertiesNOThomestead$zoning)
+table(propertieshomestead$zoning)
+unique(propertiesNOThomestead$zoning)
+
+ggplot(filtered_properties, aes(x = zoning, fill = homestead_group)) +
+  geom_bar(position = "dodge") +
+  scale_fill_manual(values = c("No Exemption" = "red", "With Exemption" = "blue")) +
+  labs(
+    title = "Comparison of Zoning Categories by Homestead Exemption Status",
+    x = "Zoning",
+    y = "Count",
+    fill = "Homestead Exemption"
+  ) +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+ggplot(filtered_properties, aes(x = depth, y = ..count.., color = homestead_group)) +
+  geom_density() +
+  scale_color_manual(values = c("No Exemption" = "red", "With Exemption" = "blue")) +
+  labs(
+    title = "Category Code across Properties",
+    x = "Category Code",
+    y = "Density",
+    color = "Homestead Exemption"
+  ) +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1), title = element_text(face = "bold"))
+
+mean(propertiesNOThomestead$frontage, na.rm = TRUE)
+max(propertiesNOThomestead$depth, na.rm = TRUE)
+sum(is.na(filtered_properties))
+colSums(is.na(filtered_properties))
+sum(propertiesNOThomestead$depth > 0, na.rm = TRUE)
+table(propertiesNOThomestead$frontage)
+sum(propertieshomestead$depth > 0, na.rm = TRUE)
+ksn
+filtered_properties <- filtered_properties %>%
+  mutate(same_address = ifelse(mailing_street == location, 1, 0))
+
+median(propertiesNOThomestead$taxable_building,na.rm = TRUE)
+median(propertieshomestead$taxable_building,na.rm = TRUE)
+filtered_properties <- filtered_properties %>%
+  mutate(checkifsame = ifelse(taxable_building == market_value, 1, 0))
+
+table(propertiesNOThomestead$category_code)
+table(propertieshomestead$category_code)
+table(filtered_properties$exempt == 0)
+
+filtered_properties <- properties %>%
+  mutate(exemptbutnothomestead = ifelse(exempt_building > 0 & homestead_exemption == 0, 1, 0))
+
+table(filtered_properties$exemptbutnothomestead)
+
+```
+
+# Preliminary Logit Regression Model
+```{r}
+properties_model <- properties %>%
+  mutate(exemption = ifelse(homestead_exemption == 0, 0, 1))
+
+
+table(properties_model$exemption)
+set.seed(3456)
+colSums(is.na(churnTest))
+trainIndex <- createDataPartition(properties_model$exemption, p = .50,
+                                  list = FALSE,
+                                  times = 1)
+churnTrain <- properties_model[ trainIndex,]
+churnTest  <- properties_model[-trainIndex,]
+
+churnreg1 <- glm(exemption ~ .,
+                 data=churnTrain %>% 
+                   dplyr::select(sale_price, market_value, total_area, zip_code, geographic_ward, exemption),
+                 family="binomial" (link="logit"))
+testProbs <- data.frame(Outcome = as.factor(churnTest$exemption),
+                        Probs = predict(churnreg1, churnTest, type= "response"))
+summary(churnreg1)
+pR2(churnreg1)[4]
+
+ggplot(testProbs, aes(x = Probs, fill = as.factor(Outcome))) + 
+  geom_density() +
+  facet_grid(Outcome ~ .) +
+  scale_fill_discrete() + xlim(0, 1) +
+  labs(x = "Homestead Exemption", y = "Density of probabilities",
+       title = "Distribution of predicted probabilities by observed outcome") +
+  plotTheme() + theme(strip.text.x = element_text(size = 18),
+                      legend.position = "none")
+
+testProbs <- 
+  testProbs %>%
+  mutate(predOutcome  = as.factor(ifelse(testProbs$Probs > 0.5 , 1, 0)))
+
+head(testProbs)
+
+caret::confusionMatrix(testProbs$predOutcome, testProbs$Outcome, 
+                       positive = "1")
+
+#looking at predicted to have exemption but did not have exemption, which is false negative
+ggplot(testProbs, aes(d = as.numeric(testProbs$Outcome), m = Probs)) +
+  geom_roc(n.cuts = 50, labels = FALSE, colour = "#FE9900") +
+  style_roc(theme = theme_grey) +
+  geom_abline(slope = 1, intercept = 0, size = 1.5, color = 'grey') +
+  labs(title = "ROC Curve - churnModel")
+
+```
