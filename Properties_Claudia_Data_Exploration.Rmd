@@ -30,11 +30,12 @@ properties_comlicences_taxbalance <- read.csv("Data/Variables/properties_comlice
 properties_comlicences_taxbalance <- properties_comlicences_taxbalance %>% mutate(com_potential_bin = ifelse(com_potential == TRUE, 1, 0)) %>% select(-com_potential)
 
 combined <- left_join(filtered_properties, properties_comlicences_taxbalance, by = "objectid")
-combined <- combined %>% mutate(com_potential_final = ifelse(com_potential_bin == 1, 1, 0))
-combined <- combined %>% mutate(avg_balance_final = ifelse(com_potential_bin == 1, 1, 0))
+sum(is.na(combined$com_potential_bin))
+combined$avg_balance
+combined <- combined %>% mutate(com_potential_final = ifelse(is.na(com_potential_bin), 0, com_potential_bin))
+combined <- combined %>% mutate(avg_balance_final = ifelse(is.na(avg_balance), 0, avg_balance))
 
-filtered_properties <- filtered_properties %>% 
-properties_model <- filtered_properties
+properties_model <- combined
 set.seed(3456)
 trainIndex <- createDataPartition(properties_model$exemption, p = .50,
                                   list = FALSE,
@@ -44,7 +45,7 @@ churnTest  <- properties_model[-trainIndex,]
 
 churnreg1 <- glm(exemption ~ .,
                  data=churnTrain %>% 
-                   dplyr::select(market_value, total_area, zip_code, geographic_ward, is_residential, same_address, likely_loop, is_deep, exemption),
+                   dplyr::select(market_value, total_area, zip_code, geographic_ward, is_residential, same_address, likely_loop, is_deep, avg_balance_final, com_potential_final, exemption),
                  family="binomial" (link="logit"))
 testProbs <- data.frame(Outcome = as.factor(churnTest$exemption),
                         Probs = predict(churnreg1, churnTest, type= "response"))
