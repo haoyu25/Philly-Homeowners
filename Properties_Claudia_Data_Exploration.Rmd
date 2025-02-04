@@ -9,6 +9,7 @@ library(pscl)
 library(plotROC)
 library(pROC)
 library(scales)
+library(car)
 options(scipen = 999)
 root.dir = "https://raw.githubusercontent.com/urbanSpatial/Public-Policy-Analytics-Landing/master/DATA/"
 source("https://raw.githubusercontent.com/urbanSpatial/Public-Policy-Analytics-Landing/master/functions.r")
@@ -27,15 +28,18 @@ filtered_properties <- filtered_properties %>% mutate(likely_loop = ifelse(exemp
 filtered_properties <- filtered_properties %>% mutate(is_deep = ifelse(depth >300, 1, 0)) 
 
 properties_comlicences_taxbalance <- read.csv("Data/Variables/properties_comlicenses_taxbalance.csv")
-properties_comlicences_taxbalance <- properties_comlicences_taxbalance %>% mutate(com_potential_bin = ifelse(com_potential == TRUE, 1, 0)) %>% select(-com_potential)
+properties_comlicences_taxbalance <- properties_comlicences_taxbalance %>% mutate(com_potential_final = ifelse(com_potential == TRUE, 1, 0)) %>% select(-com_potential)
 
 combined <- left_join(filtered_properties, properties_comlicences_taxbalance, by = "objectid")
-sum(is.na(combined$com_potential_bin))
-combined$avg_balance
-combined <- combined %>% mutate(com_potential_final = ifelse(is.na(com_potential_bin), 0, com_potential_bin))
-combined <- combined %>% mutate(avg_balance_final = ifelse(is.na(avg_balance), 0, avg_balance))
 
-properties_model <- combined
+history_transfers <- read.csv("history_transfers_2.0.csv") %>% select(1, 11:20) %>% rename(avg_growth_rate = avg_growth_rate.x)
+
+colnames(history_transfers)
+
+combinedfinal <- left_join(combined, history_transfers, by = "parcel_number")
+combinedfinalres <- combinedfinal %>% filter(is_residential == 1)
+
+properties_model <- combinedfinalres
 set.seed(3456)
 trainIndex <- createDataPartition(properties_model$exemption, p = .50,
                                   list = FALSE,
@@ -45,11 +49,23 @@ churnTest  <- properties_model[-trainIndex,]
 
 churnreg1 <- glm(exemption ~ .,
                  data=churnTrain %>% 
-                   dplyr::select(market_value, total_area, zip_code, geographic_ward, is_residential, same_address, likely_loop, is_deep, avg_balance_final, com_potential_final, exemption),
+                   dplyr::select(market_value, total_area, zip_code, geographic_ward, is_residential, same_address, likely_loop, is_deep, avg_balance, com_potential_final, transfer_count, transaction_count, discrepancy_count, avg_growth_rate, value_sd, avg_market_value, avg_taxable_land, avg_taxable_building, avg_exempt_land, avg_exempt_building, exemption),
                  family="binomial" (link="logit"))
+
+churnreg2 <- glm(exemption ~ .,
+                 data=churnTrain %>% 
+                   dplyr::select(total_area, zip_code, geographic_ward, same_address, likely_loop, is_deep, avg_balance, com_potential_final, transaction_count, avg_growth_rate, value_sd, exemption),
+                 family="binomial" (link="logit"))
+vif(churnreg2)
+
 testProbs <- data.frame(Outcome = as.factor(churnTest$exemption),
                         Probs = predict(churnreg1, churnTest, type= "response"))
+
+testProbs <- data.frame(Outcome = as.factor(churnTest$exemption),
+                        Probs = predict(churnreg2, churnTest, type= "response"))
+
 summary(churnreg1)
+summary(churnreg2)
 pR2(churnreg1)[4]
 
 ggplot(testProbs, aes(x = Probs, fill = as.factor(Outcome))) + 
@@ -60,6 +76,7 @@ ggplot(testProbs, aes(x = Probs, fill = as.factor(Outcome))) +
        title = "Distribution of predicted probabilities by observed outcome") +
   plotTheme() + theme(strip.text.x = element_text(size = 18),
                       legend.position = "none")
+
 
 testProbs <- 
   testProbs %>%
