@@ -20,69 +20,6 @@ source("https://raw.githubusercontent.com/urbanSpatial/Public-Policy-Analytics-L
 # Main Property Dataset
 ```{r}
 properties <- read.csv("Data/opa_properties_public.csv")
-colnames(properties)
-table(properties$homestead_exemption)
-length(which(properties$homestead_exemption==0))
-length(which(properties$homestead_exemption==100000))
-sum(is.na(properties$homestead_exemption))
-
-max(properties$homestead_exemption)
-which(properties$homestead_exemption == max(properties$homestead_exemption))
-properties[566284, ]
-
-# to send to Maggy White
-length(which(properties$homestead_exemption>100000))
-propertiesfiltered <- properties %>% filter(homestead_exemption >100000)
-write.csv(propertiesfiltered, file = "properties_exceeding_exemption.csv")
-
-ggplot(properties, aes(y = homestead_exemption)) + 
-  geom_boxplot()
-
-propertieshomestead <- properties %>% filter(homestead_exemption != 0)
-propertieshomestead$exceed <- ifelse(propertieshomestead$homestead_exemption > 100000, "exceed", "within")
-table(propertieshomestead$exceed)
-mean(propertieshomestead$market_value, na.rm = TRUE)
-median(propertieshomestead$market_value, na.rm = TRUE)
-mean(propertieshomestead$sale_price, na.rm = TRUE)
-median(propertieshomestead$sale_price, na.rm = TRUE)
-
-propertiesNOThomestead <- properties %>% filter(homestead_exemption == 0)
-mean(propertiesNOThomestead$market_value, na.rm = TRUE)
-median(propertiesNOThomestead$market_value, na.rm = TRUE)
-mean(propertiesNOThomestead$sale_price, na.rm = TRUE)
-median(propertiesNOThomestead$sale_price, na.rm = TRUE)
-
-mean(propertieshomestead$total_livable_area, na.rm = TRUE)
-median(propertieshomestead$total_livable_area, na.rm = TRUE)
-mean(propertiesNOThomestead$total_livable_area, na.rm = TRUE)
-median(propertiesNOThomestead$total_livable_area, na.rm = TRUE)
-
-
-ggplot(propertieshomestead, aes(x=market_value)) + 
-  geom_histogram(color="black", fill="white", bins = 100)
-
-ggplot(propertiesNOThomestead, aes(x=market_value)) + 
-  geom_histogram(color="black", fill="white", bins = 100)
-
-table(propertiesNOThomestead$zoning)
-
-filtered_properties <- properties %>%
-  mutate(homestead_group = ifelse(homestead_exemption == 0, "No Exemption", "With Exemption"))
-
-# Create the bar chart
-ggplot(filtered_properties, aes(x = zoning, fill = homestead_group)) +
-  geom_bar(position = "dodge") +
-  scale_fill_manual(values = c("No Exemption" = "red", "With Exemption" = "blue")) +
-  labs(
-    title = "Comparison of Zoning Categories by Homestead Exemption Status",
-    x = "Zoning",
-    y = "Count",
-    fill = "Homestead Exemption"
-  ) +
-  theme_minimal() +
-  theme(axis.text.x = element_text(angle = 45, hjust = 1))
-
-
 ```
 
 
@@ -148,7 +85,8 @@ properties_comlicenses <- properties %>%
               select(full_name, licensestatus), by = c("owner_2" = "full_name"))%>%
   mutate(com_potential = ifelse(licensestatus.x == "Active" | licensestatus.y == "Active", TRUE, FALSE))%>%
   select(-licensestatus.x, -licensestatus.y)%>%
-  mutate(com_potential = replace_na(com_potential, FALSE))
+  mutate(com_potential = replace_na(com_potential, FALSE))%>%
+  select(objectid,com_potential)
 
 ```
 
@@ -231,10 +169,19 @@ balance_distinct <- balance_sf %>%
 
 ```{r}
 properties_balance <- properties %>%
-  left_join(balance_distinct, by = c("census_tract" = "census"))
+  left_join(balance_distinct, by = c("census_tract" = "census"))%>%
+  select(objectid,avg_balance)
 ```
 
 ```{r}
 summary(properties_balance$avg_balance)
 ```
+
+#write file
+```{r}
+merged_data <- left_join(properties_balance, properties_comlicenses, by = "objectid")
+
+write.csv(merged_data, "Data/properties_comlicenses_taxbalance.csv", row.names = FALSE)
+```
+
 
