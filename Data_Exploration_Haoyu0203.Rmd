@@ -181,7 +181,7 @@ summary(properties_balance$avg_balance)
 ```{r}
 merged_data <- left_join(properties_balance, properties_comlicenses, by = "objectid")
 
-write.csv(merged_data, "Data/properties_comlicenses_taxbalance.csv", row.names = FALSE)
+write.csv(merged_data, "Data/Variables/properties_comlicenses_taxbalance.csv", row.names = FALSE)
 ```
 
 
