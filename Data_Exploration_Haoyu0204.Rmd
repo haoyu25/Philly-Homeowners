@@ -12,6 +12,7 @@ library(scales)
 library(tidycensus)
 library(tigris)
 library(sf)
+library(data.table)
 options(scipen = 999)
 root.dir = "https://raw.githubusercontent.com/urbanSpatial/Public-Policy-Analytics-Landing/master/DATA/"
 source("https://raw.githubusercontent.com/urbanSpatial/Public-Policy-Analytics-Landing/master/functions.r")
@@ -19,9 +20,8 @@ source("https://raw.githubusercontent.com/urbanSpatial/Public-Policy-Analytics-L
 
 # Main Property Dataset
 ```{r}
-properties <- read.csv("Data/opa_properties_public.csv")
+properties <- fread("Data/opa_properties_public.csv")
 ```
-
 
 # Commercial Activity Licenses Dataset
 
@@ -111,6 +111,10 @@ balances <- read.csv("Data/real_estate_tax_balances_census_tract.csv")
 ```
 
 ```{r}
+#census_api_key("3bc1987a43778c83027e34adeca3b3849d9ce49c", install = TRUE)
+```
+
+```{r}
 philly_tracts <- tracts(state = "PA", county = "Philadelphia", year = 2024, class = "sf")%>%
   select(GEOID) 
 ```
@@ -153,13 +157,13 @@ ggplot(balance_sf) +
 
 ```{r}
 #integrate with property by census tract
-balance_sf <- balance_sf %>%
-  mutate(census = as.numeric(substr(GEOID, 6, 9)))
+balance_distinct <- balances %>%
+  mutate(census = as.numeric(substr(census_tract, 6, 9)))
 ```
 
 ```{r}
 #distinct
-balance_distinct <- balance_sf %>%
+balance_distinct <- balance_distinct %>%
   st_drop_geometry()%>%
   group_by(census) %>% 
   summarise(avg_balance = sum(balance, na.rm = TRUE) / sum(num_props, na.rm = TRUE)) %>%
