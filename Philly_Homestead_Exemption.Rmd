@@ -70,3 +70,13 @@ palette5 <- c('#BF4146', '#E5A186', '#F1C8BB', '#B3CADB','#6683a9')
 
 The City of Philadelphia Office of Philly Stat 360 and Office of Information Technology wants to create a proof-of-concept project that can efficiently identify Philadelphia homeowners who are not receiving benefits to which they are entitled. The goal of this project is to design an algorithm-driven outreach campaign that can cost effectively identify homeowners who are likely to be eligible for the [Homestead Tax Exemption](https://www.phila.gov/services/payments-assistance-taxes/taxes/property-and-real-estate-taxes/get-real-estate-tax-relief/get-the-homestead-exemption/) but are not participating in the program. The relevant properties are also thought to be more likely to be subject to “tangled titles,” or family-rental arrangements that require an affidavit to waive need for a rental license.
 
+## Data Exploration
+
+### Dependent Variable: Property 
+
+### Independent Variables
+
+## Modeling
+
+
+

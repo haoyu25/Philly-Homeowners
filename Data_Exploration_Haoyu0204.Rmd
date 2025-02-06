@@ -1,0 +1,191 @@
+# Install necessary libraries
+```{r}
+library(dplyr)
+library(ggplot2)
+library(tidyverse)
+library(caret)
+library(knitr) 
+library(pscl)
+library(plotROC)
+library(pROC)
+library(scales)
+library(tidycensus)
+library(tigris)
+library(sf)
+library(data.table)
+options(scipen = 999)
+root.dir = "https://raw.githubusercontent.com/urbanSpatial/Public-Policy-Analytics-Landing/master/DATA/"
+source("https://raw.githubusercontent.com/urbanSpatial/Public-Policy-Analytics-Landing/master/functions.r")
+```
+
+# Main Property Dataset
+```{r}
+properties <- fread("Data/opa_properties_public.csv")
+```
+
+# Commercial Activity Licenses Dataset
+
+Eligibility: Not used exclusively for business purposes or as rental units (a percentage is fine) 
+
+##Potential Variable: F/T exclusively for business purposes (Binary) 
+
+F/T - Does the applicant hold a commercial license?  
+
+Property owner name – commercial licenses owner name -- status 
+
+```{r}
+comlicenses <- read.csv("Data/com_act_licenses.csv")
+head(comlicenses, 10)
+```
+
+```{r}
+
+comlicenses_clean <- comlicenses %>% 
+  mutate(across(where(is.character), ~ na_if(.x, "")))%>%
+  select(where(~ any(!is.na(.))))%>%
+  select(licensenum,licensestatus,legalfirstname,legallastname,legalentityid)
+
+head(comlicenses_clean)
+
+```
+
+```{r}
+
+summary(comlicenses_clean)
+sapply(comlicenses_clean, function(x) sum(is.na(x)))
+
+```
+
+
+```{r}
+ggplot(comlicenses_clean, aes(x = licensestatus)) +
+  geom_bar(fill = "steelblue", color = "black") +
+  labs(title = "License Status Distribution", x = "License Status", y = "Count") +
+  theme_minimal()
+```
+
+## Integrate by owner name
+
+```{r}
+#prepare to integrate with property
+comlicenses_licenses<-comlicenses_clean%>%
+  filter(licensestatus=="Active")%>%
+  mutate(full_name = paste(legallastname, legalfirstname))%>%
+  distinct(full_name, .keep_all = TRUE)
+```
+
+
+```{r}
+
+#integrate with property
+properties_comlicenses <- properties %>%
+  left_join(comlicenses_licenses %>%
+              select(full_name, licensestatus), by = c("owner_1" = "full_name")) %>%
+  left_join(comlicenses_licenses %>%
+              select(full_name, licensestatus), by = c("owner_2" = "full_name"))%>%
+  mutate(com_potential = ifelse(licensestatus.x == "Active" | licensestatus.y == "Active", TRUE, FALSE))%>%
+  select(-licensestatus.x, -licensestatus.y)%>%
+  mutate(com_potential = replace_na(com_potential, FALSE))%>%
+  select(objectid,com_potential)
+
+```
+
+```{r}
+#plot
+ggplot(properties_comlicenses, aes(x = com_potential, fill = com_potential)) +
+  geom_bar() +
+  labs(title = "Potential Commercial Licenses",
+       x = "com_potential",
+       y = "Count") +
+  theme_minimal()
+
+```
+
+
+# Tax balances
+
+May have some negative effect in application 
+
+```{r}
+balances <- read.csv("Data/real_estate_tax_balances_census_tract.csv")
+```
+
+```{r}
+#census_api_key("3bc1987a43778c83027e34adeca3b3849d9ce49c", install = TRUE)
+```
+
+```{r}
+philly_tracts <- tracts(state = "PA", county = "Philadelphia", year = 2024, class = "sf")%>%
+  select(GEOID) 
+```
+```{r}
+balance_sf <- philly_tracts %>% 
+  inner_join(balances, by = c("GEOID" = "census_tract")) 
+```
+
+```{r}
+
+summary(balance_sf %>% select(num_props, balance, avg_balance))
+sapply(balance_sf %>% select(num_props, balance, avg_balance), function(x) sum(is.na(x)))
+
+```
+
+```{r}
+
+ggplot(balance_sf) +
+  geom_sf(aes(fill = num_props), color = "black", size = 0.2) +  
+  scale_fill_viridis_c(option = "plasma") +  
+  labs(title = "Number of Properties by census tract",
+       fill = "Num Properties") + 
+  theme_minimal()
+
+ggplot(balance_sf) +
+  geom_sf(aes(fill = balance), color = "black", size = 0.2) + 
+  scale_fill_viridis_c(option = "plasma") + 
+  labs(title = "Total Balance by census tract",
+       fill = "Balance") + 
+  theme_minimal()
+
+ggplot(balance_sf) +
+  geom_sf(aes(fill = avg_balance), color = "black", size = 0.2) + 
+  scale_fill_viridis_c(option = "plasma") + 
+  labs(title = "Average Balance by census tract",
+       fill = "Avg Balance") + 
+  theme_minimal()
+
+```
+
+```{r}
+#integrate with property by census tract
+balance_distinct <- balances %>%
+  mutate(census = as.numeric(substr(census_tract, 6, 9)))
+```
+
+```{r}
+#distinct
+balance_distinct <- balance_distinct %>%
+  st_drop_geometry()%>%
+  group_by(census) %>% 
+  summarise(avg_balance = sum(balance, na.rm = TRUE) / sum(num_props, na.rm = TRUE)) %>%
+  ungroup()
+
+```
+
+```{r}
+properties_balance <- properties %>%
+  left_join(balance_distinct, by = c("census_tract" = "census"))%>%
+  select(objectid,avg_balance)
+```
+
+```{r}
+summary(properties_balance$avg_balance)
+```
+
+#write file
+```{r}
+merged_data <- left_join(properties_balance, properties_comlicenses, by = "objectid")
+
+write.csv(merged_data, "Data/Variables/properties_comlicenses_taxbalance.csv", row.names = FALSE)
+```
+
+
