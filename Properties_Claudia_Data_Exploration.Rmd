@@ -15,15 +15,16 @@ root.dir = "https://raw.githubusercontent.com/urbanSpatial/Public-Policy-Analyti
 source("https://raw.githubusercontent.com/urbanSpatial/Public-Policy-Analytics-Landing/master/functions.r")
 ```
 
-# Main Property Dataset
+# Main Property Dataset RESIDENTIAL ONLY: residential_properties, DEPENDENT VARIABLE: exemption (binary 1,0)
 ```{r}
 properties <- read.csv("opa_properties_public.csv")
-tail(properties, 10)
-colnames(properties)
 filtered_properties <- properties %>%
   mutate(exemption = ifelse(homestead_exemption == 0, 0, 1))
 filtered_properties <- filtered_properties %>% mutate(is_residential = ifelse(zoning %in% c("RSA1", "RSA2", "RSA3", "RSA4", "RSA5", "RM1", "RM1|RSA5", "RM2", "RM3", "RM4","CMX1", "CMX2", "CMX2.5","CMX3", "CMX4", "CMX5","IRMX"), 1, 0))
+residential_properties <- filtered_properties %>% filter(is_residential == 1)
+```
 
+```{r}
 table(filtered_properties$is_residential)
 filtered_properties <- filtered_properties %>% mutate(same_address = ifelse(mailing_street == location, 1, 0))
 filtered_properties <- filtered_properties %>% mutate(likely_loop = ifelse(exempt_building > 0 & exemption == 0, 1, 0))
