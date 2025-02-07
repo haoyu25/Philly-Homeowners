@@ -22,6 +22,7 @@ filtered_properties <- properties %>%
   mutate(exemption = ifelse(homestead_exemption == 0, 0, 1))
 filtered_properties <- filtered_properties %>% mutate(is_residential = ifelse(zoning %in% c("RSA1", "RSA2", "RSA3", "RSA4", "RSA5", "RM1", "RM1|RSA5", "RM2", "RM3", "RM4","CMX1", "CMX2", "CMX2.5","CMX3", "CMX4", "CMX5","IRMX"), 1, 0))
 residential_properties <- filtered_properties %>% filter(is_residential == 1)
+write.csv(residential_properties, file = "residential_properties.csv")
 ```
 
 ```{r}
