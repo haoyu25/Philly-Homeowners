@@ -1,5 +1,5 @@
 ---
-title: "Untitled"
+title: "Census_Setup"
 output: html_document
 date: "2025-02-09"
 ---
@@ -8,15 +8,11 @@ date: "2025-02-09"
 knitr::opts_chunk$set(echo = TRUE)
 ```
 
-## R Markdown
 
-This is an R Markdown document. Markdown is a simple formatting syntax for authoring HTML, PDF, and MS Word documents. For more details on using R Markdown see <http://rmarkdown.rstudio.com>.
-
-When you click the **Knit** button a document will be generated that includes both content as well as the output of any embedded R code chunks within the document. You can embed an R code chunk like this:
 ```{r}
 library(tidycensus)
 
-# Load and view available variables
+# Load available variables
 vars_2022 <- load_variables(2022, "acs5", cache = TRUE)
 
 acs_vars <- c("B01003_001E", # Total Pop
@@ -50,9 +46,13 @@ acs_vars <- c("B01003_001E", # Total Pop
 ```
 
 
-```{r cars}
+```{r}
+#use this to look for available variables
+#View(vars_2022)
+```
 
-# Now get the data
+
+```{r}
 philaCensus1 <- get_acs(
     geography = "tract",
     variables = acs_vars,
@@ -136,6 +136,8 @@ philaCensus1 <- get_acs(
   select(-matches("B\\d+"))
 
 ```
+
+
 ```{r}
 philaCensus1 <- philaCensus1 %>%
   mutate(
@@ -207,7 +209,6 @@ philaCensus1 <- philaCensus1 %>%
 ```
 
 
-
 ```{r}
 library(sf)
 
@@ -215,6 +216,7 @@ library(sf)
 phila_tracts <- st_read("C:/Users/rache/Documents/tl_2020_42101_tract20.shp")
 
 ```
+
 
 ```{r}
 # First, ensure GEOIDs match in format
@@ -239,6 +241,7 @@ phila_census1 <- phila_census1 %>%
 
 
 ```{r}
+# create final dataset
 phila_census1_clean <- phila_census1 %>%
   select(
     # Keep primary identifier
@@ -270,6 +273,8 @@ phila_census1_clean <- phila_census1 %>%
 
 
 ```{r}
+# save dataset
+# set path and name file!
 st_write(phila_census1_clean,
          "C:/Users/rache/Documents/philacensus/phila_census12.gpkg",
          layer = "phila_census",  # specify layer name
