@@ -21,11 +21,253 @@ properties <- read.csv("opa_properties_public.csv")
 table(properties$zoning)
 filtered_properties <- properties %>%
   mutate(exemption = ifelse(homestead_exemption == 0, 0, 1))
-filtered_properties <- filtered_properties %>% mutate(is_residential = ifelse(zoning %in% c("RM1", "RM2", "RM3", "RM4", "RSA1", "RSA2", "RSA3", "RSA4", "RSA5", "RSA6", "RSD1", "RSD2", "RSD3", "RM1|RSA5", "CMX1", "CMX2", "CMX2.5", "CMX3", "CMX4", "CMX5", "IRMX"), 1, 0))
+filtered_properties <- filtered_properties %>% mutate(is_residential = ifelse(zoning %in% c("RM1", "RM2", "RM3", "RM4", "RSA1", "RSA2", "RSA3", "RSA4", "RSA5", "RSA6", "RSD1", "RSD2", "RSD3", "RM1|RSA5", "CMX1", "CMX2", "CMX2.5", "CMX3", "CMX4", "CMX5", "IRMX",""), 1, 0))
+
+library(dplyr)
+
+exemptionbyzoning <- filtered_properties %>%
+  group_by(zoning, exemption) %>%
+  summarise(count = n(), .groups = "drop") %>%
+  tidyr::pivot_wider(names_from = exemption, values_from = count, values_fill = list(count = 0)) %>%
+  rename(No_Exemption = `0`, Exemption = `1`)
+
+
+num_blank_zoning <- properties %>%
+  filter(zoning == "" | is.na(zoning) | str_trim(zoning) == "") %>%
+  nrow()
+
+print(num_blank_zoning)
+
 residential_properties <- filtered_properties %>% filter(is_residential == 1)
-write.csv(residential_properties, file = "residential_properties.csv")
+residential_properties <- residential_properties %>% mutate(same_address = ifelse(mailing_street == location, 1, 0))
+residential_properties <- residential_properties %>% mutate(likely_loop = ifelse(exempt_building > 0 & exemption == 0, 1, 0))
+residential_properties <- residential_properties %>% mutate(is_deep = ifelse(depth >150, 1, 0)) 
+sum(is.na(filtered_properties$exempt_building))
 ```
 
+```{r}
+library(ggplot2)
+library(dplyr)
+library(tidyr)
+
+# Sample dataset (Replace with your actual data)
+# residential_properties <- read.csv("your_data.csv")
+
+# Convert binary variables to factors
+residential_properties <- residential_properties %>%
+  mutate(across(c(exemption, same_address, likely_loop, is_deep), as.factor))
+
+# Define colors
+colors <- c("0" = "#e42524", "1" = "#008d8a")
+
+# Function to create bar charts
+plot_binary_variable <- function(var_name) {
+  ggplot(residential_properties, aes(x = .data[[var_name]], fill = exemption)) +
+    geom_bar(position = "dodge") +
+    scale_fill_manual(values = colors, labels = c("No Exemption", "With Exemption")) +
+    labs(x = var_name, y = "Count", fill = "Exemption") +
+    theme_minimal(base_size = 14) +
+    theme(panel.grid.major = element_line(color = "grey90"),
+          panel.grid.minor = element_blank(),
+          legend.position = "top")
+}
+
+# Create bar charts for binary variables
+plot_binary_variable("same_address")
+ggplot(residential_properties, aes(x = same_address, fill = exemption)) +
+    geom_bar(position = "dodge") +
+    scale_fill_manual(values = colors, labels = c("No Exemption", "With Exemption")) +
+    labs(title = "Mailing Address Matches Property Address", x = "Address Match", y = "Count", fill = "Homestead Exemption") +
+    theme_minimal(base_size = 14) +
+    theme(panel.grid.major = element_line(color = "grey90"),
+          panel.grid.minor = element_blank(),
+          legend.position = "bottom",
+         plot.title = element_text(vjust = 0.5))
+
+
+plot_binary_variable("likely_loop")
+ggplot(residential_properties %>% filter(!is.na(likely_loop)), aes(x = likely_loop, fill = exemption)) +
+    geom_bar(position = "dodge") +
+    scale_fill_manual(values = colors, labels = c("No Exemption", "With Exemption")) +
+    labs(title = "Tax Relief besides Homestead Exemption", x = "Likely Other Exemption Scheme", y = "Count", fill = "Homestead Exemption") +
+    theme_minimal(base_size = 14) +
+    theme(panel.grid.major = element_line(color = "grey90"),
+          panel.grid.minor = element_blank(),
+          legend.position = "bottom",
+         plot.title = element_text(vjust = 0.5))
+
+plot_binary_variable("is_deep")
+ggplot(residential_properties %>% filter(!is.na(is_deep)), aes(x = is_deep, fill = exemption)) +
+    geom_bar(position = "dodge") +
+    scale_fill_manual(values = colors, labels = c("No Exemption", "With Exemption")) +
+    labs(title = "Property Depth by Homestead Exemption", x = "Depth > 300", y = "Count", fill = "Exemption") + theme_minimal(base_size = 14) +
+    theme(panel.grid.major = element_line(color = "grey90"),
+          panel.grid.minor = element_blank(),
+          legend.position = "bottom",
+         plot.title = element_text(vjust = 0.5))
+
+# Box plot for total_area
+total_area_summary <- residential_properties %>%
+  group_by(exemption) %>%
+  summarise(mean_total_area = mean(total_area, na.rm = TRUE)) # Change to median() if preferred
+
+# Bar chart for mean total_area
+ggplot(total_area_summary, aes(x = exemption, y = mean_total_area, fill = exemption)) +
+  geom_col() +
+  scale_fill_manual(values = colors, labels = c("No Exemption", "With Exemption")) +
+  labs(title = "Mean Total Property Area", x = "", y = "Mean Total Area", fill = "Homestead Exemption") +
+  theme_minimal(base_size = 14) +
+  theme(panel.grid.major = element_line(color = "grey90"),
+        panel.grid.minor = element_blank(),
+        legend.position = "bottom")
+
+```
+
+```{r}
+properties_comlicences_taxbalance <- read.csv("Data/Variables/properties_comlicenses_taxbalance.csv")
+properties_comlicences_taxbalance <- properties_comlicences_taxbalance %>% mutate(com_potential_final = ifelse(com_potential == TRUE, 1, 0)) %>% select(-com_potential)
+
+combined <- left_join(residential_properties, properties_comlicences_taxbalance, by = "objectid")
+
+history_transfers <- read.csv("history_transfers_2.0.csv") %>% select(1, 11:20) %>% rename(avg_growth_rate = avg_growth_rate.x)
+combinedfinal <- left_join(combined, history_transfers, by = "parcel_number")
+```
+
+```{r}
+properties_model <- combinedfinal
+set.seed(3456)
+trainIndex <- createDataPartition(properties_model$exemption, p = .50,
+                                  list = FALSE,
+                                  times = 1)
+churnTrain <- properties_model[ trainIndex,]
+churnTest  <- properties_model[-trainIndex,]
+
+
+library(fixest)
+library(lme4)
+colnames(churnTrain)
+
+#zip code
+fixest_zip <- feglm(exemption ~ total_area + same_address + likely_loop + is_deep + 
+                     avg_balance + com_potential_final + transaction_count + 
+                     avg_growth_rate + value_sd | zip_code, 
+                     family = binomial, data = churnTrain)
+
+lme4_zip <- glmer(exemption ~ total_area + geographic_ward + same_address + likely_loop + 
+                   is_deep + avg_balance + com_potential_final + transaction_count + 
+                   avg_growth_rate + value_sd + (1 | zip_code), 
+                   family = binomial, data = churnTrain)
+
+churnreg2_zip <- glm(exemption ~ total_area + same_address + likely_loop + is_deep + 
+                      avg_balance + com_potential_final + transaction_count + 
+                      avg_growth_rate + value_sd + factor(zip_code), 
+                      family = binomial(link = "logit"), data = churnTrain)
+
+# Geographic Ward Models
+fixest_ward <- feglm(exemption ~ total_area + same_address + likely_loop + is_deep + 
+                      avg_balance + com_potential_final + transaction_count + 
+                      avg_growth_rate + value_sd | geographic_ward, 
+                      family = binomial, data = churnTrain)
+
+lme4_ward <- glmer(exemption ~ total_area + same_address + likely_loop + is_deep + 
+                    avg_balance + com_potential_final + transaction_count + 
+                    avg_growth_rate + value_sd + (1 | geographic_ward), 
+                    family = binomial, data = churnTrain)
+
+churnreg2_ward <- glm(exemption ~ total_area + same_address + likely_loop + is_deep + 
+                       avg_balance + com_potential_final + transaction_count + 
+                       avg_growth_rate + value_sd + factor(geographic_ward), 
+                       family = binomial(link = "logit"), data = churnTrain)
+
+# Census Tract Models
+fixest_tract <- feglm(exemption ~ total_area + same_address + likely_loop + is_deep + 
+                       avg_balance + com_potential_final + transaction_count + 
+                       avg_growth_rate + value_sd | census_tract, 
+                       family = binomial, data = churnTrain)
+
+lme4_tract <- glmer(exemption ~ total_area + geographic_ward + same_address + likely_loop + 
+                     is_deep + avg_balance + com_potential_final + transaction_count + 
+                     avg_growth_rate + value_sd + (1 | census_tract), 
+                     family = binomial, data = churnTrain)
+
+churnreg2_tract <- glm(exemption ~ total_area + same_address + likely_loop + is_deep + 
+                        avg_balance + com_potential_final + transaction_count + 
+                        avg_growth_rate + value_sd + factor(census_tract), 
+                        family = binomial(link = "logit"), data = churnTrain)
+
+```
+
+```{r}
+library(glmnet)
+
+# Define predictors (excluding 'exemption') and response variable
+X_train <- as.matrix(select(churnTrain, -exemption))  # Convert predictors to a matrix
+X_train <- makeX(churnTrain, remove.factors = FALSE)  # Auto-handles NAs
+y_train <- as.factor(churnTrain$exemption) 
+# Binary dependent variable
+
+X_test <- as.matrix(select(churnTest, -exemption))
+X_test <- makeX(churnTest, remove.factors = FALSE)
+y_test <- as.factor(churnTest$exemption)
+
+# Fit Lasso regression model using cross-validation
+set.seed(3456)
+cv_lasso <- cv.glmnet(X_train, y_train, alpha = 1, family = "binomial")
+
+# Best lambda value
+best_lambda <- cv_lasso$lambda.min
+cat("Optimal lambda:", best_lambda, "\n")
+
+# Fit final Lasso model using best lambda
+lasso_model <- glmnet(X_train, y_train, alpha = 1, lambda = best_lambda, family = "binomial")
+
+# Extract important features (nonzero coefficients)
+coef_lasso <- coef(lasso_model)
+selected_features <- rownames(coef_lasso)[coef_lasso[,1] != 0]
+cat("Selected Features:\n", selected_features, "\n")
+
+# Make predictions on test data
+pred_prob <- predict(lasso_model, s = best_lambda, newx = X_test, type = "response")
+pred_class <- ifelse(pred_prob > 0.5, 1, 0)
+
+# Evaluate model performance
+conf_mat <- table(Predicted = pred_class, Actual = y_test)
+accuracy <- sum(diag(conf_mat)) / sum(conf_mat)
+cat("Model Accuracy:", accuracy, "\n")
+
+# Print confusion matrix
+print(conf_mat)
+```
+
+
+```{r}
+library(spdep)
+library(tidygeocoder)
+library(dplyr)
+
+# Geocode addresses
+properties_geocode <- properties %>%
+  geocode(location, method = "osm") 
+
+# Check if geocoding worked
+head(properties)
+
+
+# Create a spatial weights matrix (adjust based on your data)
+coords <- cbind(properties$longitude, properties$latitude)  # Assuming you have coordinates
+nb <- knn2nb(knearneigh(coords, k = 5))  # 5 nearest neighbors
+listw <- nb2listw(nb, style = "W")
+
+# Compute Moran's I for binary exemption
+moran_test <- moran.test(properties$exemption, listw)
+
+# Print results
+print(moran_test)
+
+```
+
+
+##previous
 ```{r}
 table(filtered_properties$is_residential)
 filtered_properties <- filtered_properties %>% mutate(same_address = ifelse(mailing_street == location, 1, 0))
