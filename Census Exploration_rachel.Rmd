@@ -1,0 +1,178 @@
+---
+title: "Untitled"
+output: html_document
+date: "2025-02-06"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(sf)
+library(dplyr)
+library(ggplot2)
+library(data.table)
+
+
+map_theme <- theme_minimal() +
+  theme(
+    axis.text = element_blank(),
+    axis.title = element_blank(),
+    panel.grid = element_blank()
+  )
+```
+
+```{r}
+census_tracts <- st_read("C:/Users/rache/Documents/Github/Philly-Homeowners/Data/phila_census1.gpkg")
+
+names(census_tracts)
+```
+
+## Special Use Tracts
+TRACT numbers:
+9800 series tracts: Philadelphia International Airport area
+9801: Wissahickon Park
+9802: Pennypack Park
+9803: Northeast Airport
+9804: International Airport
+9805: Hunting Park
+9806: Stadium District
+9807: Industrial-Port
+9808: Cobbs Creek Park
+9809: Industrial - Refinery
+
+```{r plot, echo=FALSE}
+# Median Income Map
+ggplot(census_tracts) +
+  geom_sf(aes(fill = median_income)) +
+  scale_fill_viridis_c(name = "Median Income", 
+                       labels = scales::dollar_format()) +
+  ggtitle("Median Household Income by Census Tract") +
+  map_theme
+
+# Median Home Value Map
+ggplot(census_tracts) +
+  geom_sf(aes(fill = median_home_value)) +
+  scale_fill_viridis_c(name = "Home Value", 
+                       labels = scales::dollar_format()) +
+  ggtitle("Median Home Value by Census Tract") +
+  map_theme
+```
+
+
+```{r}
+properties <- fread("C:/Users/rache/Documents/opa_properties_public.csv")
+colnames(properties)
+filtered_properties <- properties %>%
+  mutate(exemption = ifelse(homestead_exemption == 0, 0, 1))
+filtered_properties <- filtered_properties %>% mutate(is_residential = ifelse(zoning %in% c("RSA1", "RSA2", "RSA3", "RSA4", "RSA5", "RM1", "RM1|RSA5", "RM2", "RM3", "RM4","CMX1", "CMX2", "CMX2.5","CMX3", "CMX4", "CMX5","IRMX"), 1, 0))
+filtered_properties <- filtered_properties %>% mutate(same_address = ifelse(mailing_street == location, 1, 0))
+filtered_properties <- filtered_properties %>% mutate(likely_loop = ifelse(exempt_building > 0 & exemption == 0, 1, 0))
+filtered_properties <- filtered_properties %>% mutate(is_deep = ifelse(depth >300, 1, 0))
+
+```
+
+
+```{r}
+# Transform census tracts to PA State Plane (EPSG:2272) first
+census_tracts <- st_transform(census_tracts, 2272)
+
+# Convert properties to sf with PA State Plane CRS
+properties_sf <- st_as_sf(properties, wkt = "shape", crs = 2272)
+
+# Do the spatial join
+properties_tract <- st_join(properties_sf, census_tracts)
+
+# Create summary statistics - drop geometry
+tract_summary <- properties_tract %>%
+  group_by(GEOID) %>%
+  summarise(
+    total_properties = n(),
+    homestead_count = sum(homestead_exemption > 0, na.rm = TRUE),
+    pct_homestead = (homestead_count / total_properties) * 100,
+    .groups = "drop"
+  ) %>%
+  st_drop_geometry()  # This removes the spatial component
+
+# Add new columns to census_tracts dataset
+census_tracts_enriched <- census_tracts %>%
+  left_join(tract_summary, by = "GEOID")
+
+# Create map using enriched census dataset
+ggplot(census_tracts_enriched) +
+  geom_sf(aes(fill = pct_homestead)) +
+  scale_fill_viridis_c(
+    name = "% Properties\nwith Homestead\nExemption",
+    limits = c(0, 82),
+    breaks = seq(0, 80, 20)
+  ) +
+  labs(
+    title = "Homestead Exemption Rates by Census Tract",
+    subtitle = "Philadelphia, PA"
+  ) +
+  map_theme
+
+
+```
+
+```{r}
+tract_summary
+```
+```{r}
+# First, let's check the distribution of pct_homestead
+summary(tract_summary$pct_homestead)
+
+# Create map with conditional coloring
+ggplot(census_tracts_enriched) +
+  geom_sf(aes(fill = ifelse(pop_density > 0 & pct_homestead < 40, 
+              pct_homestead, NA))) +
+  scale_fill_viridis_c(
+    name = "% Homestead\nExemption\n(Pop. Density > 0)",
+    na.value = "gray80",
+    limits = c(0, 40)
+  ) +
+  labs(
+    title = "Low Homestead Exemption Rates in Populated Areas",
+    subtitle = "Philadelphia Census Tracts"
+  ) +
+  map_theme
+
+
+```
+
+
+
+```{r}
+zip_summary <- properties %>%
+  group_by(zip_code) %>%
+  summarise(
+    avg_year_built = mean(year_built, na.rm = TRUE),
+    avg_market_value = mean(market_value, na.rm = TRUE),
+    avg_sale_price = mean(sale_price, na.rm = TRUE),
+    avg_livable_area = mean(total_livable_area, na.rm = TRUE),
+    total_properties = n(),
+    homestead_count = sum(homestead_exemption == "YES", na.rm = TRUE),
+    pct_homestead = homestead_count / total_properties * 100
+  )
+
+
+```
+
+```{r}
+# Filter for homestead properties only
+homestead_properties <- properties %>%
+  filter(homestead_exemption == "YES")
+
+# Repeat above aggregations for homestead-only properties
+homestead_tract_summary <- st_join(homestead_properties, census_tracts) %>%
+  group_by(GEOID) %>%
+  summarise(
+    avg_year_built_homestead = mean(year_built, na.rm = TRUE),
+    avg_market_value_homestead = mean(market_value, na.rm = TRUE),
+    avg_sale_price_homestead = mean(sale_price, na.rm = TRUE),
+    avg_livable_area_homestead = mean(total_livable_area, na.rm = TRUE)
+  )
+
+```
+
