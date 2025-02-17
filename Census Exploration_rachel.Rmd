@@ -1,5 +1,5 @@
 ---
-title: "Untitled"
+title: "Census Exploration"
 output: html_document
 date: "2025-02-06"
 ---
@@ -9,82 +9,122 @@ knitr::opts_chunk$set(echo = TRUE)
 ```
 
 ```{r}
+# Load libraries
 library(sf)
 library(dplyr)
 library(ggplot2)
 library(data.table)
+library(tidycensus)
+library(tigris)
+library(tidyverse)
+library(caret)
+library(knitr) 
+library(pscl)
+library(plotROC)
+library(pROC)
+library(scales)
+library(leaflet)
 
 
+# Set up theme and options
 map_theme <- theme_minimal() +
   theme(
     axis.text = element_blank(),
     axis.title = element_blank(),
     panel.grid = element_blank()
   )
+
+options(tigris_use_cache = TRUE)
+options(scipen = 999)
 ```
 
+# Load base datasets
 ```{r}
+# 2022 5-year estimates (2018-2022)
 census_tracts <- st_read("C:/Users/rache/Documents/Github/Philly-Homeowners/Data/phila_census1.gpkg")
-
-names(census_tracts)
-```
-
-## Special Use Tracts
-TRACT numbers:
-9800 series tracts: Philadelphia International Airport area
-9801: Wissahickon Park
-9802: Pennypack Park
-9803: Northeast Airport
-9804: International Airport
-9805: Hunting Park
-9806: Stadium District
-9807: Industrial-Port
-9808: Cobbs Creek Park
-9809: Industrial - Refinery
-
-```{r plot, echo=FALSE}
-# Median Income Map
-ggplot(census_tracts) +
-  geom_sf(aes(fill = median_income)) +
-  scale_fill_viridis_c(name = "Median Income", 
-                       labels = scales::dollar_format()) +
-  ggtitle("Median Household Income by Census Tract") +
-  map_theme
-
-# Median Home Value Map
-ggplot(census_tracts) +
-  geom_sf(aes(fill = median_home_value)) +
-  scale_fill_viridis_c(name = "Home Value", 
-                       labels = scales::dollar_format()) +
-  ggtitle("Median Home Value by Census Tract") +
-  map_theme
 ```
 
 
+# Properties
+Zoning Codes used:
+RSA1, RSA2, RSA3, RSA4, RSA5 (Residential Single-Family Attached)
+RM1, RM2, RM3, RM4 (Residential Multi-Family)
+CMX1, CMX2, CMX2.5, CMX3, CMX4, CMX5 (Commercial Mixed-Use)
+IRMX (Industrial Residential Mixed-Use)
+
+
+Added 2/11/25
+RSD-1, RSD-2, RSD-3 (Residential Single-Family Detached)
+RTA-1 (Residential Two-Family Attached)
+RMX-1, RMX-2, RMX-3 (Residential Mixed-Use)
 ```{r}
+# Philadelphia property data
 properties <- fread("C:/Users/rache/Documents/opa_properties_public.csv")
-colnames(properties)
+
+
 filtered_properties <- properties %>%
   mutate(exemption = ifelse(homestead_exemption == 0, 0, 1))
-filtered_properties <- filtered_properties %>% mutate(is_residential = ifelse(zoning %in% c("RSA1", "RSA2", "RSA3", "RSA4", "RSA5", "RM1", "RM1|RSA5", "RM2", "RM3", "RM4","CMX1", "CMX2", "CMX2.5","CMX3", "CMX4", "CMX5","IRMX"), 1, 0))
-filtered_properties <- filtered_properties %>% mutate(same_address = ifelse(mailing_street == location, 1, 0))
-filtered_properties <- filtered_properties %>% mutate(likely_loop = ifelse(exempt_building > 0 & exemption == 0, 1, 0))
-filtered_properties <- filtered_properties %>% mutate(is_deep = ifelse(depth >300, 1, 0))
+
+filtered_properties <- filtered_properties %>% 
+  mutate(is_residential = ifelse(zoning %in% c(
+    # Single Family Detached
+    "RSD1", "RSD2", "RSD3",
+    
+    # Single Family Attached
+    "RSA1", "RSA2", "RSA3", "RSA4", "RSA5", "RSA6",
+    
+    # Two-Family Attached
+    "RTA1",
+    
+    # Multi-Family
+    "RM1", "RM2", "RM3", "RM4",
+    
+    # Residential Mixed-Use
+    "RMX1", "RMX2", "RMX3",
+    
+    # Commercial Mixed-Use (allows residential)
+    "CMX1", "CMX2", "CMX2.5", "CMX3", "CMX4", "CMX5",
+    
+    # Industrial Residential Mixed-Use
+    "IRMX"), 1, 0))
+
+
+# Create indicator for properties where mailing address matches property location
+# This helps identify owner-occupied properties, though not perfectly since:
+# - Some owners use PO boxes or different mailing addresses
+# - Some property management companies use property address for mail
+filtered_properties <- filtered_properties %>% 
+  mutate(same_address = ifelse(mailing_street == location, 1, 0))
+
+# Create indicator for potential "loophole" properties that have building tax exemptions
+# but no homestead exemption, which could indicate:
+# - Non-profit owned residential properties
+# - Properties with other types of tax abatements
+# - Properties that may be eligible for but not utilizing homestead exemption
+filtered_properties <- filtered_properties %>%
+  mutate(likely_loop = ifelse(exempt_building > 0 & exemption == 0, 1, 0))
+
+# Flag unusually deep lots (over 300 feet)
+# Deep lots may indicate:
+# - Multiple buildings on one lot
+# - Irregular property configurations
+# - Potential subdivision candidates
+filtered_properties <- filtered_properties %>%
+  mutate(is_deep = ifelse(depth > 300, 1, 0))
+
+
+#names(filtered_properties)
 
 ```
 
 
 ```{r}
-# Transform census tracts to PA State Plane (EPSG:2272) first
+# Convert to spatial and join with census tracts
+properties_sf <- st_as_sf(filtered_properties, wkt = "shape", crs = 2272)
 census_tracts <- st_transform(census_tracts, 2272)
-
-# Convert properties to sf with PA State Plane CRS
-properties_sf <- st_as_sf(properties, wkt = "shape", crs = 2272)
-
-# Do the spatial join
 properties_tract <- st_join(properties_sf, census_tracts)
 
-# Create summary statistics - drop geometry
+# Create tract summary
 tract_summary <- properties_tract %>%
   group_by(GEOID) %>%
   summarise(
@@ -93,69 +133,393 @@ tract_summary <- properties_tract %>%
     pct_homestead = (homestead_count / total_properties) * 100,
     .groups = "drop"
   ) %>%
-  st_drop_geometry()  # This removes the spatial component
+  st_drop_geometry()
 
-# Add new columns to census_tracts dataset
+# Create final enriched dataset
 census_tracts_enriched <- census_tracts %>%
   left_join(tract_summary, by = "GEOID")
 
-# Create map using enriched census dataset
-ggplot(census_tracts_enriched) +
-  geom_sf(aes(fill = pct_homestead)) +
-  scale_fill_viridis_c(
-    name = "% Properties\nwith Homestead\nExemption",
-    limits = c(0, 82),
-    breaks = seq(0, 80, 20)
+```
+
+```{r}
+# Transform data to WGS84 (required for leaflet)
+census_tracts_wgs84 <- st_transform(census_tracts_enriched, 4326)
+
+# Create interactive map
+leaflet(census_tracts_wgs84) %>%
+  addTiles() %>%  # Add OpenStreetMap base map
+  addPolygons(
+    fillColor = ~colorNumeric(
+      palette = "viridis",
+      domain = c(0, 80)
+    )(pct_homestead),
+    fillOpacity = 0.7,
+    weight = 1,
+    color = "white",
+    popup = ~paste(
+      "Census Tract:", GEOID, "<br>",
+      "Homestead %:", round(pct_homestead, 1), "<br>",
+      "Population Density:", round(pop_density, 0), "<br>",
+      "Total Properties:", total_properties, "<br>",
+      "Median Income:", scales::dollar(median_income)
+    )
+  ) %>%
+  addLegend(
+    position = "bottomright",
+    pal = colorNumeric("viridis", domain = c(0, 80)),
+    values = ~pct_homestead,
+    title = "% Homestead Exemption",
+    opacity = 0.7
+  )
+
+```
+
+
+```{r}
+# Create histogram of homestead exemption distribution
+ggplot(census_tracts_enriched %>% 
+       filter(pop_density > 0), # Filter out zero population tracts
+       aes(x = pct_homestead)) +
+  geom_histogram(
+    binwidth = 5,
+    fill = "steelblue",
+    color = "white"
   ) +
   labs(
-    title = "Homestead Exemption Rates by Census Tract",
-    subtitle = "Philadelphia, PA"
+    title = "Distribution of Homestead Exemption Rates Across Philadelphia Census Tracts",
+    subtitle = "Excluding Zero Population Density Tracts",
+    x = "Percentage of Properties with Homestead Exemption",
+    y = "Number of Census Tracts"
+  ) +
+  theme_minimal() +
+  scale_x_continuous(breaks = seq(0, 100, by = 10))
+
+```
+The distribution shows a roughly normal shape with most tracts clustered between 30-50%
+There's a notable drop-off below 30% in the number of tracts
+The histogram shows relatively few tracts with rates below 20%
+
+Therefore, census tracts with homestead exemption rates below 30% could be considered to have low enrollment and might warrant targeted outreach or investigation into barriers to participation, assuming they are primarily residential areas and not institutional/special use tracts.
+
+```{r}
+# Map showing spatial patterns
+ggplot(census_tracts_enriched) +
+  geom_sf(aes(fill = cut(pct_homestead, 
+              breaks = c(0, 20, 30, 40, 50, 60, 100),
+              labels = c("<20%", "20-30%", "30-40%", "40-50%", "50-60%", ">60%")))) +
+  scale_fill_viridis_d(
+    name = "Homestead\nExemption Rate",
+    na.value = "gray80"
+  ) +
+  labs(
+    title = "Homestead Exemption Rates Across Philadelphia",
+    subtitle = "By Census Tract (Excluding Zero Population Areas)",
+    caption = "Gray areas indicate zero population density tracts"
   ) +
   map_theme
 
-
 ```
 
+
 ```{r}
-tract_summary
-```
-```{r}
-# First, let's check the distribution of pct_homestead
+# Distribution of pct_homestead
 summary(tract_summary$pct_homestead)
 
-# Create map with conditional coloring
+# Map for low rates (under 30%)
 ggplot(census_tracts_enriched) +
-  geom_sf(aes(fill = ifelse(pop_density > 0 & pct_homestead < 40, 
+  geom_sf(aes(fill = ifelse(pop_density > 0 & pct_homestead < 30, 
               pct_homestead, NA))) +
   scale_fill_viridis_c(
-    name = "% Homestead\nExemption\n(Pop. Density > 0)",
+    name = "% Homestead\nExemption\n(Under 30%)",
     na.value = "gray80",
-    limits = c(0, 40)
+    limits = c(0, 30),
+    breaks = seq(0, 30, by = 5)
   ) +
   labs(
-    title = "Low Homestead Exemption Rates in Populated Areas",
-    subtitle = "Philadelphia Census Tracts"
+    title = "Low Homestead Exemption Rates in Philadelphia",
+    subtitle = "Census Tracts Below 30% Enrollment",
+    caption = "Gray areas: Zero population density or rates ≥ 30%"
   ) +
   map_theme
 
+# Table for low rates
+low_enrollment_tracts <- census_tracts_enriched %>%
+  filter(pop_density > 0 & pct_homestead < 30) %>%
+  select(GEOID, pct_homestead, pop_density) %>%
+  arrange(pct_homestead)
+
+low_enrollment_tracts %>%
+  st_drop_geometry() %>% 
+  arrange(pct_homestead) %>%
+  kable(
+    col.names = c("Census Tract", "% Homestead", "Population Density"),
+    digits = 2,
+    caption = "Census Tracts with Low Homestead Exemption Rates (<30%)"
+  )
+
+# Map for high rates (over 60%)
+ggplot(census_tracts_enriched) +
+  geom_sf(aes(fill = ifelse(pop_density > 0 & pct_homestead > 60, 
+              pct_homestead, NA))) +
+  scale_fill_viridis_c(
+    name = "% Homestead\nExemption\n(Over 60%)",
+    na.value = "gray80",
+    limits = c(60, 82),
+    breaks = seq(60, 80, by = 5)
+  ) +
+  labs(
+    title = "High Homestead Exemption Rates in Philadelphia",
+    subtitle = "Census Tracts Above 60% Enrollment",
+    caption = "Gray areas: Zero population density or rates ≤ 60%"
+  ) +
+  map_theme
+
+# Table for high rates
+low_enrollment_tracts <- census_tracts_enriched %>%
+  filter(pop_density > 0 & pct_homestead < 30) %>%
+  select(GEOID, pct_homestead, pop_density) %>%
+  arrange(pct_homestead)
+
+low_enrollment_tracts %>%
+  st_drop_geometry() %>% 
+  arrange(pct_homestead) %>%
+  kable(
+    col.names = c("Census Tract", "% Homestead", "Population Density"),
+    digits = 2,
+    caption = "Census Tracts with Low Homestead Exemption Rates (<30%)"
+  )
+
+```
+
+```{r}
+# Scatterplot of homestead rates vs median home values
+ggplot(census_tracts_enriched %>% 
+       filter(pop_density > 0), 
+       aes(x = median_home_value, y = pct_homestead)) +
+  geom_point(alpha = 0.6) +
+  geom_smooth(method = "loess", se = TRUE) +
+  scale_x_continuous(labels = scales::dollar_format()) +
+  theme_minimal() +
+  labs(
+    title = "Homestead Exemption Rates vs. Home Values",
+    x = "Median Home Value",
+    y = "Percentage with Homestead Exemption"
+  )
+
+```
+The scatterplot shows the relationship between median home values (x-axis) and homestead exemption rates (y-axis) across Philadelphia census tracts. The pattern suggests:
+
+Homestead exemption rates increase with home values up to around $250,000. 
+
+Peak participation occurs in the $200,000-$300,000 range (around 50%).
+
+There's a slight decline in participation for higher-value homes.
+
+The widening gray area at higher home values indicates more uncertainty in the trend, likely due to fewer data points in that range.
+
+Wide variation in participation rates across all home values, shown by the vertical spread of points
+
+```{r}
+# Owner Occupancy vs Homestead Rates Analysis
+occupancy_analysis <- census_tracts_enriched %>%
+  filter(pop_density > 0) %>%
+  mutate(
+    owner_occ_rate = (owner_hh / occupied_units) * 100,
+    pct_homestead_owners = (homestead_count / owner_hh) * 100
+  ) %>%
+  select(GEOID, owner_occ_rate, pct_homestead_owners)
+
+# Visualize the relationship
+ggplot(occupancy_analysis, aes(x = owner_occ_rate, y = pct_homestead_owners)) +
+  geom_point(alpha = 0.6) +
+  geom_smooth(method = "loess") +
+  labs(
+    title = "Owner Occupancy Rate vs. Homestead Participation",
+    x = "Owner Occupancy Rate (%)",
+    y = "Homestead Participation Rate (%)"
+  ) +
+  theme_minimal()
+```
+This scatter plot reveals important patterns in homestead exemption participation across Philadelphia's neighborhoods. By comparing census tract data on owner occupancy rates (from the 2022 5-year ACS) with homestead exemption enrollment, we can identify areas where participation could be improved.
+
+The data shows that while most Philadelphia census tracts have owner occupancy rates between 25-75%, and generally over half of eligible homeowners participate in the program, there are clear opportunities for improvement. Particularly concerning are:
+
+Census tracts with participation rates below 50%
+
+Areas with high owner occupancy but low program participation
+
+Neighborhoods falling well below the expected participation rate (shown by the blue trend line)
+
+Notably, higher rates of owner occupancy don't automatically translate to higher program participation. This suggests that other factors beyond home ownership - such as awareness of the program, ease of enrollment, or demographic characteristics - may play more significant roles in determining participation rates. These insights can help guide targeted outreach efforts to increase program enrollment among eligible homeowners who are currently missing out on this tax benefit.
+
+# Zoning Analysis
+```{r}
+# Data frame of zoning types
+zoning_types <- data.frame(
+  Type = c(
+    "Single Family Detached",
+    "Single Family Attached",
+    "Two-Family Attached",
+    "Multi-Family",
+    "Residential Mixed-Use",
+    "Commercial Mixed-Use",
+    "Industrial Residential Mixed-Use"
+  ),
+  Codes = c(
+    "RSD1, RSD2, RSD3",
+    "RSA1, RSA2, RSA3, RSA4, RSA5, RSA6",
+    "RTA1",
+    "RM1, RM2, RM3, RM4",
+    "RMX1, RMX2, RMX3",
+    "CMX1, CMX2, CMX2.5, CMX3, CMX4, CMX5",
+    "IRMX"
+  ),
+  Description = c(
+    "Detached houses on individual lots",
+    "Attached and semi-detached houses on individual lots",
+    "Two-family, semi-detached houses on individual lots",
+    "Moderate to high-density multi-unit residential buildings",
+    "Residential and mixed-use development, including master plan development",
+    "Neighborhood to regional-serving mixed-use development",
+    "Mix of low-impact industrial, artisan industrial, residential, and neighborhood commercial uses"
+  )
+)
+
+# Formatted table
+kable(zoning_types,
+      col.names = c("Residential Type", "Zoning Codes", "Description"),
+      caption = "Philadelphia Residential Zoning Classifications")
 
 ```
 
 
+```{r}
+properties_filtered <- filtered_properties %>%
+  select(
+    zoning,
+    homestead_exemption,
+    is_residential,
+    census_tract,
+    shape
+  )
+
+# First create a zoning type classification
+filtered_properties <- filtered_properties %>% 
+  mutate(
+    zoning_type = case_when(
+      zoning %in% c("RSD1", "RSD2", "RSD3") ~ "Single Family Detached",
+      zoning %in% c("RSA1", "RSA2", "RSA3", "RSA4", "RSA5", "RSA6") ~ "Single Family Attached",
+      zoning %in% c("RTA1") ~ "Two-Family Attached",
+      zoning %in% c("RM1", "RM2", "RM3", "RM4") ~ "Multi-Family",
+      zoning %in% c("RMX1", "RMX2", "RMX3") ~ "Residential Mixed-Use",
+      zoning %in% c("CMX1", "CMX2", "CMX2.5", "CMX3", "CMX4", "CMX5") ~ "Commercial Mixed-Use",
+      zoning %in% c("IRMX") ~ "Industrial Residential Mixed-Use",
+      TRUE ~ "Other"
+    ),
+    is_residential = ifelse(zoning_type != "Other", 1, 0)
+  )
+
+
+zoning_summary <- filtered_properties %>%
+  filter(is_residential == 1) %>%
+  group_by(zoning_type) %>%
+  summarise(
+    total_properties = n(),
+    homestead_count = sum(homestead_exemption > 0, na.rm = TRUE),
+    pct_homestead = (homestead_count / total_properties) * 100
+  ) %>%
+  arrange(desc(pct_homestead))
+
+
+# Homestead rates by zoning type
+ggplot(zoning_summary, 
+       aes(x = reorder(zoning_type, -pct_homestead), 
+           y = pct_homestead)) +
+  geom_bar(stat = "identity", 
+           fill = "steelblue",
+           alpha = 0.8) +
+  geom_text(aes(label = round(pct_homestead,1)), 
+            vjust = -0.5,
+            size = 3) +
+  theme_minimal() +
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1),
+    panel.grid.major.x = element_blank()
+  ) +
+  labs(
+    title = "Homestead Exemption Rates by Zoning Category in Philadelphia",
+    subtitle = "Residential and Mixed-Use Districts Only",
+    x = "Zoning Category",
+    y = "Percentage with Homestead Exemption",
+    caption = "Source: Philadelphia Property Data, 2025"
+  ) +
+  scale_y_continuous(
+    limits = c(0, max(zoning_summary$pct_homestead) * 1.1),
+    labels = function(x) paste0(x, "%")
+  )
+
+
+```
+
+##### In progress...
+# Further Analysis
+```{r}
+# Special Use Areas Analysis
+special_use_tracts <- census_tracts_enriched %>%
+  filter(pop_density > 0 & pct_homestead < 20) %>%
+  select(GEOID, pct_homestead, pop_density, total_properties)
+
+# Map special use areas
+ggplot(census_tracts_enriched) +
+  geom_sf() +
+  geom_sf(data = special_use_tracts, fill = "red", alpha = 0.5) +
+  labs(
+    title = "Potential Special Use Areas",
+    subtitle = "Census Tracts with <20% Homestead Exemption Rate"
+  ) +
+  map_theme
+```
+
+## Special Use 
+Philadelphia International Airport area
+Wissahickon Park
+Pennypack Park
+Northeast Airport
+International Airport
+Hunting Park
+Stadium District
+Industrial-Port
+Cobbs Creek Park
+Industrial - Refinery
+
+- Parks and Recreation Areas (Wissahickon, Pennypack, Hunting Park)
+- Transportation Infrastructure (Airports)
+- Industrial Zones (Port, Refinery)
+- Sports Complexes (Stadium District)
+
 
 ```{r}
-zip_summary <- properties %>%
-  group_by(zip_code) %>%
+# Property Characteristics Comparison
+property_comparison <- census_tracts_enriched %>%
+  group_by(pct_homestead > 0) %>%
   summarise(
     avg_year_built = mean(year_built, na.rm = TRUE),
     avg_market_value = mean(market_value, na.rm = TRUE),
     avg_sale_price = mean(sale_price, na.rm = TRUE),
-    avg_livable_area = mean(total_livable_area, na.rm = TRUE),
-    total_properties = n(),
-    homestead_count = sum(homestead_exemption == "YES", na.rm = TRUE),
-    pct_homestead = homestead_count / total_properties * 100
-  )
+    avg_living_area = mean(total_livable_area, na.rm = TRUE)
+  ) %>%
+  rename(has_homestead = `pct_homestead > 0`)
 
+# Comparison plots
+ggplot(census_tracts_enriched, aes(x = factor(pct_homestead > 0), y = market_value)) +
+  geom_boxplot() +
+  scale_y_continuous(labels = scales::dollar_format()) +
+  labs(
+    title = "Market Values: Homestead vs Non-Homestead Properties",
+    x = "Has Homestead Exemption",
+    y = "Market Value"
+  ) +
+  theme_minimal()
 
 ```
 
@@ -164,7 +528,7 @@ zip_summary <- properties %>%
 homestead_properties <- properties %>%
   filter(homestead_exemption == "YES")
 
-# Repeat above aggregations for homestead-only properties
+# aggregations for homestead-only properties
 homestead_tract_summary <- st_join(homestead_properties, census_tracts) %>%
   group_by(GEOID) %>%
   summarise(
@@ -175,4 +539,91 @@ homestead_tract_summary <- st_join(homestead_properties, census_tracts) %>%
   )
 
 ```
+
+# By Zip Code
+```{r}
+zip_summary <- properties %>%
+  group_by(zip_code) %>%
+  
+
+
+```
+
+
+######
+
+# Commercial Activity Licenses
+```{r}
+comlicenses <- read.csv("Data/com_act_licenses.csv")
+
+# Clean
+comlicenses_clean <- comlicenses %>% 
+  mutate(across(where(is.character), ~ na_if(.x, ""))) %>%
+  select(where(~ any(!is.na(.)))) %>%
+  select(licensenum, licensestatus, legalfirstname, legallastname, legalentityid)
+
+# Filter for active licenses and create full names
+comlicenses_licenses <- comlicenses_clean %>%
+  filter(licensestatus == "Active") %>%
+  mutate(full_name = paste(legallastname, legalfirstname)) %>%
+  distinct(full_name, .keep_all = TRUE)
+```
+
+
+```{r}
+# Join commercial licenses with properties
+properties_comlicenses <- properties_sf %>%
+  left_join(comlicenses_licenses %>%
+              select(full_name, licensestatus), 
+            by = c("owner_1" = "full_name")) %>%
+  left_join(comlicenses_licenses %>%
+              select(full_name, licensestatus), 
+            by = c("owner_2" = "full_name")) %>%
+  mutate(com_potential = ifelse(licensestatus.x == "Active" | 
+                               licensestatus.y == "Active", TRUE, FALSE)) %>%
+  select(-licensestatus.x, -licensestatus.y) %>%
+  mutate(com_potential = replace_na(com_potential, FALSE))
+```
+
+
+# Tax balances
+```{r}
+balances <- read.csv("Data/real_estate_tax_balances_census_tract.csv")
+
+# Create balance summary by census tract
+balance_distinct <- balances %>%
+  group_by(census_tract) %>% 
+  summarise(avg_balance = sum(balance, na.rm = TRUE) / 
+                         sum(num_props, na.rm = TRUE)) %>%
+  ungroup()
+
+# Convert census_tract to character in balance_distinct
+balance_distinct <- balances %>%
+  group_by(census_tract) %>% 
+  summarise(avg_balance = sum(balance, na.rm = TRUE) / 
+                         sum(num_props, na.rm = TRUE)) %>%
+  ungroup() %>%
+  mutate(census_tract = as.character(census_tract))
+
+# Add all data to census tracts
+census_tracts_enriched <- census_tracts_enriched %>%
+  left_join(balance_distinct, by = c("GEOID" = "census_tract")) %>%
+  left_join(properties_comlicenses %>% 
+              st_drop_geometry() %>%
+              group_by(census_tract) %>%
+              mutate(census_tract = as.character(census_tract)) %>%
+              summarise(pct_commercial = mean(com_potential) * 100),
+            by = c("GEOID" = "census_tract"))
+
+```
+
+
+
+
+
+
+
+
+
+
 
