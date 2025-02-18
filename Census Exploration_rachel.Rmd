@@ -27,6 +27,8 @@ library(leaflet)
 
 
 # Set up theme and options
+colors <- c("0" = "#e42524", "1" = "#008d8a")
+
 map_theme <- theme_minimal() +
   theme(
     axis.text = element_blank(),
@@ -151,7 +153,7 @@ leaflet(census_tracts_wgs84) %>%
   addPolygons(
     fillColor = ~colorNumeric(
       palette = "viridis",
-      domain = c(0, 80)
+      domain = c(0, 100)
     )(pct_homestead),
     fillOpacity = 0.7,
     weight = 1,
@@ -166,23 +168,83 @@ leaflet(census_tracts_wgs84) %>%
   ) %>%
   addLegend(
     position = "bottomright",
-    pal = colorNumeric("viridis", domain = c(0, 80)),
+    pal = colorNumeric("viridis", domain = c(0, 100)),
     values = ~pct_homestead,
     title = "% Homestead Exemption",
     opacity = 0.7
   )
 
 ```
+```{r}
+census_tracts_filtered <- census_tracts_enriched %>%
+  filter(pop_density > 0 & total_properties >= 30)  # 30 properties minimum
+
+census_tracts_invalid <- census_tracts_enriched %>%
+  filter(pop_density == 0 | total_properties < 30)  # Include low property counts in "invalid"
+
+
+# Transform both to WGS84
+census_tracts_invalid_wgs84 <- st_transform(census_tracts_invalid, 4326)
+census_tracts_filtered_wgs84 <- st_transform(census_tracts_filtered, 4326)
+
+# Create map with both layers
+leaflet() %>%
+  addTiles() %>%
+  # Add invalid tracts first (in gray)
+  addPolygons(data = census_tracts_invalid_wgs84,
+    fillColor = "gray",
+    fillOpacity = 0.5,
+    weight = 1,
+    color = "white",
+    popup = "No data available"
+  ) %>%
+  # Add valid tracts with your original styling
+  addPolygons(data = census_tracts_filtered_wgs84,
+    fillColor = ~colorNumeric(
+      palette = "viridis",
+      domain = c(0, 85)
+    )(pct_homestead),
+    fillOpacity = 0.7,
+    weight = 1,
+    color = "white",
+    popup = ~paste(
+    "Census Tract:", GEOID, "<br>",
+    "Homestead %:", round(pct_homestead, 1), "%<br>",
+    "Total Properties:", total_properties,
+    ifelse(total_properties < 100, 
+           "<br><i style='color:red'>Note: Low property count may affect reliability</i>", 
+           "")
+  )
+
+  )%>%
+  addLegend(
+    position = "bottomright",
+    pal = colorNumeric("viridis", domain = c(0, 85)),
+    values = census_tracts_filtered_wgs84$pct_homestead,
+    title = "% Homestead Exemption",
+    opacity = 0.7,
+    labFormat = labelFormat(suffix = "%")
+  ) %>%
+  # Add legend for gray areas
+  addLegend(
+    position = "bottomright",
+    colors = "gray",
+    labels = "No Data Available",
+    opacity = 0.5
+  )
+
+
+```
 
 
 ```{r}
 # Create histogram of homestead exemption distribution
-ggplot(census_tracts_enriched %>% 
+census_hist <- ggplot(census_tracts_enriched %>% 
        filter(pop_density > 0), # Filter out zero population tracts
        aes(x = pct_homestead)) +
   geom_histogram(
     binwidth = 5,
-    fill = "steelblue",
+    fill = "#008d8a",
     color = "white"
   ) +
   labs(
@@ -192,8 +254,17 @@ ggplot(census_tracts_enriched %>%
     y = "Number of Census Tracts"
   ) +
   theme_minimal() +
+  theme(
+    plot.title = element_text(size = 18, face = "bold"),
+    plot.subtitle = element_text(size = 14),
+    axis.title = element_text(size = 14),
+    axis.text = element_text(size = 14),
+    legend.text = element_text(size = 14)
+  ) +
   scale_x_continuous(breaks = seq(0, 100, by = 10))
 
+census_hist
+#ggsave("outputs/homestead-exemption-distribution.png", census_hist, width = 10, height = 6)
 ```
 The distribution shows a roughly normal shape with most tracts clustered between 30-50%
 There's a notable drop-off below 30% in the number of tracts
@@ -201,24 +272,96 @@ The histogram shows relatively few tracts with rates below 20%
 
 Therefore, census tracts with homestead exemption rates below 30% could be considered to have low enrollment and might warrant targeted outreach or investigation into barriers to participation, assuming they are primarily residential areas and not institutional/special use tracts.
 
+There's a notable drop-off below 30% in the number of tracts. Therefore, census tracts with homestead exemption rates below 30% could be considered to have low enrollment and might warrant targeted outreach or investigation into barriers to participation, assuming they are primarily residential areas.
+
 ```{r}
-# Map showing spatial patterns
-ggplot(census_tracts_enriched) +
+homestead_pattern <- ggplot(census_tracts_enriched) +
   geom_sf(aes(fill = cut(pct_homestead, 
               breaks = c(0, 20, 30, 40, 50, 60, 100),
               labels = c("<20%", "20-30%", "30-40%", "40-50%", "50-60%", ">60%")))) +
   scale_fill_viridis_d(
     name = "Homestead\nExemption Rate",
-    na.value = "gray80"
+    na.value = "gray80",
+    guide = guide_legend(reverse = TRUE)
   ) +
   labs(
     title = "Homestead Exemption Rates Across Philadelphia",
     subtitle = "By Census Tract (Excluding Zero Population Areas)",
     caption = "Gray areas indicate zero population density tracts"
   ) +
-  map_theme
+  theme_minimal() +
+  theme(
+    panel.grid = element_blank(),
+    plot.title = element_text(size = 18, face = "bold"),
+    plot.subtitle = element_text(size = 14),
+    axis.title = element_text(size = 14),
+    axis.text = element_blank(),
+    legend.text = element_text(size = 14)
+  )
+```
+
+
+```{r}
+homestead_pattern
+#ggsave("outputs/homestead-exemption-pattern.png", homestead_pattern, width = 10, height = 6)
+```
+```{r}
+# Basic summary statistics
+summary(census_tracts_enriched$pop_density)
+
+# More detailed statistics
+census_tracts_enriched %>%
+  summarise(
+    mean_density = mean(pop_density, na.rm = TRUE),
+    median_density = median(pop_density, na.rm = TRUE),
+    q1 = quantile(pop_density, 0.25, na.rm = TRUE),
+    q3 = quantile(pop_density, 0.75, na.rm = TRUE)
+  )
+
+# Visual distribution
+ggplot(census_tracts_enriched, aes(x = pop_density)) +
+  geom_histogram(binwidth = 1000) +
+  theme_minimal() +
+  labs(title = "Distribution of Population Density in Philadelphia Census Tracts",
+       x = "Population Density (per square mile)",
+       y = "Count of Census Tracts")
 
 ```
+
+```{r}
+homestead_pattern <- ggplot(census_tracts_enriched %>% 
+                           mutate(pct_homestead = case_when(
+                             pop_density < 2000 | total_properties < 100 ~ NA_real_,
+                             TRUE ~ pct_homestead))) +
+  geom_sf(aes(fill = cut(pct_homestead, 
+              breaks = c(0, 20, 30, 40, 50, 60, 100),
+              labels = c("<20%", "20-30%", "30-40%", "40-50%", "50-60%", ">60%")))) +
+  scale_fill_viridis_d(
+    name = "Homestead\nExemption Rate",
+    na.value = "gray80",
+    guide = guide_legend(reverse = TRUE)
+  ) +
+  labs(
+    title = "Homestead Exemption Rates Across Philadelphia",
+    subtitle = "By Census Tract",
+    caption = "Gray tracts indicate population density < 2,000 per sq. mile or fewer than 100 properties"
+  ) +
+  theme_minimal() +
+  theme(
+    panel.grid = element_blank(),
+    plot.title = element_text(size = 18, face = "bold"),
+    plot.subtitle = element_text(size = 14),
+    axis.title = element_text(size = 14),
+    axis.text = element_blank(),
+    legend.text = element_text(size = 14)
+  )
+
+```
+
+```{r}
+homestead_pattern
+```
+
 
 
 ```{r}
@@ -290,6 +433,79 @@ low_enrollment_tracts %>%
   )
 
 ```
+
+```{r}
+# Distribution of pct_homestead with new criteria
+summary(tract_summary$pct_homestead[tract_summary$pop_density >= 2000 & tract_summary$total_properties >= 100])
+
+# Map for low rates (under 30%)
+ggplot(census_tracts_enriched) +
+  geom_sf(aes(fill = ifelse(pop_density >= 2000 & total_properties >= 100 & pct_homestead < 30, 
+              pct_homestead, NA))) +
+  scale_fill_viridis_c(
+    name = "% Homestead\nExemption\n(Under 30%)",
+    na.value = "gray80",
+    limits = c(0, 30),
+    breaks = seq(0, 30, by = 5)
+  ) +
+  labs(
+    title = "Low Homestead Exemption Rates in Philadelphia",
+    subtitle = "Census Tracts Below 30% Enrollment",
+    caption = "Gray areas: Low density (<2000/sq mi), low property count (<100), or rates ≥ 30%"
+  ) +
+  map_theme
+
+# Table for low rates
+low_enrollment_tracts <- census_tracts_enriched %>%
+  filter(pop_density >= 2000 & total_properties >= 100 & pct_homestead < 30) %>%
+  select(GEOID, pct_homestead, pop_density, total_properties) %>%
+  arrange(pct_homestead)
+
+low_enrollment_tracts %>%
+  st_drop_geometry() %>% 
+  arrange(pct_homestead) %>%
+  kable(
+    col.names = c("Census Tract", "% Homestead", "Population Density", "Total Properties"),
+    digits = 2,
+    caption = "Census Tracts with Low Homestead Exemption Rates (<30%)"
+  )
+
+# Map for high rates (over 60%)
+ggplot(census_tracts_enriched) +
+  geom_sf(aes(fill = ifelse(pop_density >= 2000 & total_properties >= 100 & pct_homestead > 60, 
+              pct_homestead, NA))) +
+  scale_fill_viridis_c(
+    name = "% Homestead\nExemption\n(Over 60%)",
+    na.value = "gray80",
+    limits = c(60, 82),
+    breaks = seq(60, 80, by = 5)
+  ) +
+  labs(
+    title = "High Homestead Exemption Rates in Philadelphia",
+    subtitle = "Census Tracts Above 60% Enrollment",
+    caption = "Gray areas: Low density (<2000/sq mi), low property count (<100), or rates ≤ 60%"
+  ) +
+  map_theme
+
+# Table for high rates
+high_enrollment_tracts <- census_tracts_enriched %>%
+  filter(pop_density >= 2000 & total_properties >= 100 & pct_homestead > 60) %>%
+  select(GEOID, pct_homestead, pop_density, total_properties) %>%
+  arrange(desc(pct_homestead))
+
+high_enrollment_tracts %>%
+  st_drop_geometry() %>% 
+  arrange(desc(pct_homestead)) %>%
+  kable(
+    col.names = c("Census Tract", "% Homestead", "Population Density", "Total Properties"),
+    digits = 2,
+    caption = "Census Tracts with High Homestead Exemption Rates (>60%)"
+  )
+
+```
+
+
+
 
 ```{r}
 # Scatterplot of homestead rates vs median home values
