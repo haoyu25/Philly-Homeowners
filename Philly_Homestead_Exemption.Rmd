@@ -155,12 +155,11 @@ residential_properties <- filtered_properties %>% filter(is_residential == 1)
 #### Predictor Variables 1 & 2: Eligibility Characteristics
 The first predictor variable is based off the key eligibility criteria of the Homestead Exemption program -- whether a homeowner resides long-term in the property itself. The closest proxy of this is whether the mailing street ('mailing_street') address is the same as the property street address ('location'), as the mailing address of the owner is often where the owner lives long-term.
 
-The second predictor variable is based off the ineligibility for the homestead exemption if the homeowner is already enrolled in particular exisitng tax programs such as the LOOP and the residential tax abatement. This is determined if there is an existing tax relief that exempts a portion of the building from tax. If there is a non-zero value for 'exempt-building' and the property is not currently enrolled in the homestead exemption, it is potentially already enrolled in LOOP or in residential tax abatement.
+The second predictor variable is based off the ineligibility for the homestead exemption if the homeowner is already enrolled in particular existing tax programs such as the LOOP and the residential tax abatement. This is determined if there is an existing tax relief that exempts a portion of the building from tax. If there is a non-zero value for 'exempt-building' and the property is not currently enrolled in the homestead exemption, it is potentially already enrolled in LOOP or in residential tax abatement.
 
 ```{r}
 residential_properties <- residential_properties %>% mutate(same_address = ifelse(mailing_street == location, 1, 0))
-
-ggplot(residential_properties, aes(x = same_address, fill = as.factor(exemption))) +
+ggplot(residential_properties, aes(x = factor(same_address), fill = factor(exemption))) +
     geom_bar(position = "dodge") +
     scale_fill_manual(values = colors, labels = c("No Exemption", "With Exemption")) +
     labs(title = "Mailing Address Matches Property Address", x = "Address Match", y = "Count", fill = "Homestead Exemption") +
@@ -171,14 +170,39 @@ ggplot(residential_properties, aes(x = same_address, fill = as.factor(exemption)
          plot.title = element_text(vjust = 0.5))
 
 residential_properties <- residential_properties %>% mutate(potential_otherprog = ifelse(exempt_building > 0 & exemption == 0, 1, 0))
-
+ggplot(residential_properties %>% filter(!is.na(potential_otherprog)), 
+       aes(x = factor(potential_otherprog), fill = factor(exemption))) +
+    geom_bar(position = "dodge") +
+    scale_fill_manual(values = colors, labels = c("No Exemption", "With Exemption")) +
+    labs(title = "Tax Relief besides Homestead Exemption", x = "Likely Other Exemption Scheme", y = "Count", fill = "Homestead Exemption") +
+    theme_minimal(base_size = 14) +
+    theme(panel.grid.major = element_line(color = "grey90"),
+          panel.grid.minor = element_blank(),
+          legend.position = "bottom",
+         plot.title = element_text(vjust = 0.5))
 ```
+
 
 #### Predictor Variables 3 & 4: Property Characteristics
+Depth of the property as well as mean total property area 
 ```{r}
-residential_properties <- residential_properties %>% mutate(is_deep = ifelse(depth >150, 1, 0)) 
-```
+residential_properties <- residential_properties %>% mutate(is_deep = ifelse(depth > 150, 1, 0)) 
 
+ggplot(residential_properties %>% 
+         filter(!is.na(is_deep)), 
+       aes(x = factor(is_deep), fill = factor(exemption))) +
+  geom_bar(position = "dodge") +
+  scale_fill_manual(values = colors, labels = c("No Exemption", "With Exemption")) +
+  labs(title = "Property Depth by Homestead Exemption", 
+       x = "Depth > 300", 
+       y = "Count", 
+       fill = "Exemption") +
+  theme_minimal(base_size = 14) +
+  theme(panel.grid.major = element_line(color = "grey90"),
+        panel.grid.minor = element_blank(),
+        legend.position = "bottom",
+        plot.title = element_text(vjust = 0.5))
+```
 
 # Modeling
 
