@@ -62,6 +62,7 @@ library(plotROC)
 library(pROC)
 library(scales)
 library(car)
+library(data.table)
 
 options(scipen = 999)
 root.dir = "https://raw.githubusercontent.com/urbanSpatial/Public-Policy-Analytics-Landing/master/DATA/"
@@ -119,7 +120,7 @@ Every observation in the Property and Assessment History dataset is one property
 #### Creation of dependent variable
 There is a column 'homestead_exemption' within this dataset which indicates the taxable portion amount removed from the property assessment of the house. It should be noted that there are 14 properties that had a homestead exemption larger then $100,000, the maximum possible amount, which is suspected to be a clerical error and has been flagged to the PhillyStat360 team. The dependent variable for the model is derived from this feature by creating a binary variable on whether or not the property is currently enrolled in the homestead exemption program, indicated by a non-zero value. There are 246,853 properties with a homestead exemption.
 ```{r}
-properties <- read.csv("opa_properties_public.csv")
+properties <- fread("Data/opa_properties_public.csv")
 filtered_properties <- properties %>%
   mutate(exemption = ifelse(homestead_exemption == 0, 0, 1))
 ```
@@ -150,6 +151,35 @@ print(num_blank_zoning)
 
 residential_properties <- filtered_properties %>% filter(is_residential == 1)
 
+```
+#### transform to geodata
+
+```{r}
+properties_sf <- st_as_sf(residential_properties, wkt = "shape", crs = 2272)
+```
+
+```{r}
+census_tracts <- st_read("Data/phila_census1.gpkg")
+```
+
+```{r}
+census_tracts <- st_transform(census_tracts, 2272)
+properties_tract <- st_join(properties_sf, census_tracts)
+
+# Create tract summary
+tract_summary <- properties_tract %>%
+  group_by(GEOID) %>%
+  summarise(
+    total_properties = n(),
+    homestead_count = sum(homestead_exemption > 0, na.rm = TRUE),
+    pct_homestead = (homestead_count / total_properties) * 100,
+    .groups = "drop"
+  ) %>%
+  st_drop_geometry()
+
+# Create final enriched dataset
+census_tracts_enriched <- census_tracts %>%
+  left_join(tract_summary, by = "GEOID")
 ```
 
 #### Predictor Variables 1 & 2: Eligibility Characteristics
@@ -202,6 +232,223 @@ ggplot(residential_properties %>%
         panel.grid.minor = element_blank(),
         legend.position = "bottom",
         plot.title = element_text(vjust = 0.5))
+```
+=======
+#### Predictor Variables 5 & 6: Petentail Commercial Activity
+
+```{r}
+business_license<-st_read("Data/business_licenses.geojson")
+```
+
+```{r}
+rental_license<-business_license%>%
+  filter(licensetype=="Rental",
+         #rentalcategory=="Residential Dwellings",
+         licensestatus %in% c("Active"))%>%
+  select(opa_account_num)%>%
+  st_drop_geometry()%>%
+  distinct() %>% 
+  filter(!is.na(opa_account_num)) %>% 
+  mutate(rental_license = 1)  
+```
+
+```{r}
+properties_rental <- properties_sf %>%
+  mutate(parcel_number = as.character(parcel_number))%>%
+  left_join(rental_license, by = c("parcel_number" = "opa_account_num"))%>%
+  mutate(rental_license = replace_na(rental_license, 0))
+```
+
+```{r}
+ggplot(properties_rental, aes(x = factor(rental_license), fill = factor(exemption))) +
+  geom_bar(position = "dodge") +  
+  geom_text(stat = "count", aes(label = ..count.., color = factor(exemption)),  
+            position = position_dodge(width = 0.9),  
+            vjust = -0.5,  
+            size = 3) +  
+  scale_fill_manual(values = c("0" = "#e42524", "1" = "#00ADA9"),  
+                    labels = c("0" = "No Exemption", "1" = "With Exemption")) +  
+  scale_color_manual(values = c("0" = "#e42524", "1" = "#00ADA9")) +  
+  labs(title = "Rental Licenses Metrics by Homestead Exemption Status",
+       x = "Rental Licenses",
+       y = "Count",
+       fill = "Exemption Status") +
+  theme_minimal() +
+  theme(legend.position = "none") 
+```
+
+```{r}
+commercial_license<-business_license%>%
+  filter(licensestatus %in% c("Active"))%>%
+  filter(licensetype %in% c(
+    "Food Caterer",
+    "Food Establishment, Retail Perm Location (Large)",
+    "Food Establishment, Retail Permanent Location",
+    "Food Manufacturer / Wholesaler",
+    "Food Preparing and Serving",
+    "Food Preparing and Serving (30+ SEATS)",
+    "Motor Vehicle Repair / Retail Mobile Dispensing",
+    "Pawn Shop",
+    "Precious Metal Dealer",
+    "Public Garage / Parking Lot",
+    "Residential Property Wholesaler",
+    "Tire Dealer",
+    "Tow Company",
+    "Vacant Commercial Property"
+  ))%>%
+  select(opa_account_num)%>%
+  st_drop_geometry()%>%
+  distinct() %>% 
+  filter(!is.na(opa_account_num)) %>% 
+  mutate(commercial_license = 1) 
+```
+
+```{r}
+properties_commercial <- properties_sf %>%
+  mutate(parcel_number = as.character(parcel_number))%>%
+  left_join(commercial_license, by = c("parcel_number" = "opa_account_num"))%>%
+  mutate(commercial_license = replace_na(commercial_license, 0))
+```
+
+```{r}
+ggplot(properties_commercial, aes(x = factor(commercial_license), fill = factor(exemption))) +
+  geom_bar(position = "dodge") +  
+  geom_text(stat = "count", aes(label = ..count.., color = factor(exemption)),  
+            position = position_dodge(width = 0.9),  
+            vjust = -0.5,  
+            size = 3) +  
+  scale_fill_manual(values = c("0" = "#e42524", "1" = "#00ADA9"),  
+                    labels = c("0" = "No Exemption", "1" = "With Exemption")) +  
+  scale_color_manual(values = c("0" = "#e42524", "1" = "#00ADA9")) +  
+  labs(title = "Commercial Licenses Metrics by Homestead Exemption Status",
+       x = "Commercial Licenses (Exclude Rental)",
+       y = "Count",
+       fill = "Exemption Status") +
+  theme_minimal() +
+  theme(legend.position = "none") 
+```
+
+#### Predictor Variables 7 & 8: Tax Balance
+
+
+```{r}
+balances <- read.csv("Data/real_estate_tax_balances_census_tract.csv")
+```
+
+```{r}
+balance_sf <- census_tracts_enriched %>% 
+  left_join(balances %>% select(census_tract,balance,num_props), 
+            by = c("GEOID" = "census_tract")) 
+```
+
+```{r}
+ggplot(balance_sf) +
+  geom_sf(aes(fill = balance), color = "white", size = 0.1) + 
+  scale_fill_gradientn(colors = c("#00ADA9","#e3f9f7","#f4aa9e", "#e42524"),
+                       limits = range(balance_sf$balance, na.rm = TRUE),
+                       breaks = range(balance_sf$balance, na.rm = TRUE)
+                       ) + 
+  labs(title = "Total Tax Balance by Census Tract",
+       fill = "Price") +
+  theme_minimal() +
+  theme(
+    panel.grid = element_blank(),
+    plot.title = element_text(size = 14),
+    plot.subtitle = element_text(size = 6),
+    axis.title = element_text(size = 6),
+    axis.text = element_blank(),
+    legend.text = element_text(size = 6),
+    legend.position = "bottom",
+    legend.direction = "horizontal"
+  )
+```
+
+```{r}
+# Visualize the relationship
+ggplot(balance_sf, aes(x = balance, y = pct_homestead)) +
+  geom_point(alpha = 0.6) +
+  geom_smooth(method = "loess") +
+  labs(
+    title = "Principle vs. Homestead Participation",
+    x = "Total Principle ($)",
+    y = "Homestead Participation Rate (%)"
+  ) +
+  theme_minimal()
+```
+
+```{r}
+#distinct
+balance_distinct <- balances %>%
+  mutate(census = as.numeric(substr(census_tract, 6, 9)))%>%
+  st_drop_geometry()%>%
+  group_by(census) %>% 
+  summarise(avg_balance=sum(balance,na.rm=TRUE)/sum(num_props, na.rm = TRUE),
+            sum_balance=sum(balance,na.rm=TRUE),
+            tax_props=sum(num_props,na.rm=TRUE)) %>%
+  ungroup()
+```
+
+```{r}
+properties_number<-properties_sf%>%
+  select(census_tract,exemption,parcel_number)%>%
+  mutate(prop=1)%>%
+  st_drop_geometry()%>%
+  group_by(census_tract)%>%
+  summarise(total_props=sum(prop))%>%
+  ungroup()
+
+properties_sf_number<-properties_sf%>%
+  left_join(properties_number,by="census_tract")
+
+```
+
+
+```{r}
+properties_balance <- properties_sf_number %>%
+  select(objectid, census_tract,exemption,parcel_number,total_props)%>%
+  left_join(balance_distinct, by = c("census_tract" = "census"))%>%
+  mutate(avg_balance = replace(avg_balance, is.na(avg_balance), 0),
+         sum_balance = replace(sum_balance, is.na(sum_balance), 0),
+         tax_props=replace(tax_props,is.na(tax_props),0))%>%
+  mutate(tax_rate=tax_props/total_props)
+  
+```
+
+```{r}
+avg_values <- properties_balance %>%
+  st_drop_geometry()%>%
+  group_by(exemption) %>%
+  summarise(
+    'Total Tax Balance (In 100,000)' = mean(sum_balance, na.rm = TRUE)/100000,
+    #Tax_Props=mean(tax_props,na.rm=TRUE),
+    '% of Properties with Tax Balance'=mean(tax_rate,na.rm=TRUE)*100
+  ) %>%
+  pivot_longer(cols = -exemption, names_to = "variable", values_to = "mean_value")
+
+ggplot(avg_values, aes(x = variable, y = mean_value, fill = as.factor(exemption))) +
+  geom_bar(stat = "identity", width = 0.5, position = position_dodge(width = 0.6)) +
+
+  geom_text(aes(label = round(mean_value, 4), color = as.factor(exemption)), 
+            position = position_dodge(width = 0.6), 
+            vjust = -0.5, size = 5) +
+
+  labs(title = "Mean of Tax Variables by Exemption Status",
+       x = "Metrics",
+       y = "Mean Value",
+       fill = "Exemption Status") +
+  theme_minimal() +
+  theme(
+    plot.title = element_text(size = 18),
+    plot.subtitle = element_text(size = 14),
+    axis.title = element_text(size = 14),
+    axis.text = element_text(size = 12),
+    legend.text = element_text(size = 12),
+    legend.position = "bottom",
+    legend.direction = "horizontal"
+  ) +
+  
+  scale_fill_manual(values = c("#e42524", "#00ADA9"), labels = c("No Exemption", "With Exemption")) +
+  scale_color_manual(values = c("#e42524", "#00ADA9"), guide = "none") 
 ```
 
 # Modeling
