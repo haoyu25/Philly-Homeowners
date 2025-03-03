@@ -55,6 +55,17 @@ library(plotROC)
 library(pROC)
 library(lubridate)
 library(stargazer)
+library(caret)
+library(knitr) 
+library(pscl)
+library(plotROC)
+library(pROC)
+library(scales)
+library(car)
+
+options(scipen = 999)
+root.dir = "https://raw.githubusercontent.com/urbanSpatial/Public-Policy-Analytics-Landing/master/DATA/"
+source("https://raw.githubusercontent.com/urbanSpatial/Public-Policy-Analytics-Landing/master/functions.r")
 
 # Inflation adjust
 inflationAdjust2017 <- 1.0213
@@ -66,11 +77,52 @@ palette5 <- c('#BF4146', '#E5A186', '#F1C8BB', '#B3CADB','#6683a9')
 
 ```
 
-## Introduction
+# Introduction
 
-The City of Philadelphia Office of Philly Stat 360 and Office of Information Technology wants to create a proof-of-concept project that can efficiently identify Philadelphia homeowners who are not receiving benefits to which they are entitled. The goal of this project is to design an algorithm-driven outreach campaign that can cost effectively identify homeowners who are likely to be eligible for the [Homestead Tax Exemption](https://www.phila.gov/services/payments-assistance-taxes/taxes/property-and-real-estate-taxes/get-real-estate-tax-relief/get-the-homestead-exemption/) but are not participating in the program. The relevant properties are also thought to be more likely to be subject to “tangled titles,” or family-rental arrangements that require an affidavit to waive need for a rental license.
+This report provides a detailed workflow of the project on Homestead Tax Exemption entitlement assisstance outreach, for the City of Philadelphia Office of Philly Stat 360 and Office of Information Technology. The aim of the project is design an algorithm-driven outreach campaign that can cost effectively identify homeowners who are likely to be eligible for the [Homestead Tax Exemption](https://www.phila.gov/services/payments-assistance-taxes/taxes/property-and-real-estate-taxes/get-real-estate-tax-relief/get-the-homestead-exemption/) but are not participating in the program. The project aims to allow our clients to understand where these properties are located, potential outreach strategies, and the associated costs and benefits.
 
-## Data Exploration
+These relevant properties who are identified as most likely eligible for the Homestead Exemption but not taking up the program,  are also thought to be more likely to be subject to “tangled titles,” or family-rental arrangements that require an affidavit to waive need for a rental license.
+
+## Background on Property Tax in Philadelphia
+Property tax in Philadelphia is 1.3998% of the property value, as assessed by the Office of Property Assessment,for the 2025 taxx year. This is made up of 0.6159% (City of Philadelphia) and 0.7839% (School District)
+The taxes are due March 31st yearly.
+
+## Background on Homestead Exemption
+The Homestead Exemption reduces the taxable portion of a homeowner's property assessment by up to $100,000, saving up to $1,399 on real estate taxes annually. The bill signed aimed to lessen the financial burden of new property assessments on Philadelphia homeowners, whose property values increased by an average of 31% after the city delayed the annual calculations for three years due to the pandemic.
+Eligibility for the Homestead Exemption is as follows:
+•	you must own the property and use it as your primary residence
+•	no age or income restrictions
+•	Not used exclusively for business purposes or as rental units (a percentage is fine)
+
+A homeowner is Ineligible if a homeowner is already enrolled in these alternative real estate tax relief/abatement programs:
+•	Longtime Owner Occupants Program (LOOP), an	income-based program for homeowners who experience a substantial increase in their property assessment.
+•	10-year residential tax abatement program, although one can only apply for Homestead Exemption after the abatement is over
+
+Programs that can be used in conjunction with the homestead exemption include 
+•	Owner-Occupied Real Estate Tax Payment Agreement (OOPA)
+•	Senior Citizen Real Estate Tax Freeze
+•	Low-Income Real Estate Tax Freeze
+•	Real Estate Tax Installment Plan
+• Tax Credits for Active-Duty Reserve and National Guard Members
+
+## Tangled Titles
+
+## Significance of Outreach 
+
+# Data
+## Dataset Overview
+The primary dataset used is the Property and Assessment History publicly available for download on OpenDataPhilly. 
+Six relevant datasets are merged with this primary dataset with common identifying keys such as the parcel number in order to include useful predictor variabels in the model predicting for homeowners most likely eligible but not currently enrolled in the Homestead Exemption.
+
+## Exploratory Analysis
+### Property and Assessment History
+Every observation in the Property and Assessment History dataset is one property in Philadelphia, with a total of 584,049 properties and 79 features. As this dataset is updated daily, the one used for this project is updated as of 31 January 2025. 
+
+The dependent variable for the model is the binary variable found within this dataset on whether or not the property is currently enrolled in the homestead exemption program.
+
+
+
+
 
 ### Dependent Variable: Property 
 
