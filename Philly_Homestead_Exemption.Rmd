@@ -119,7 +119,7 @@ Every observation in the Property and Assessment History dataset is one property
 #### Creation of dependent variable
 There is a column 'homestead_exemption' within this dataset which indicates the taxable portion amount removed from the property assessment of the house. It should be noted that there are 14 properties that had a homestead exemption larger then $100,000, the maximum possible amount, which is suspected to be a clerical error and has been flagged to the PhillyStat360 team. The dependent variable for the model is derived from this feature by creating a binary variable on whether or not the property is currently enrolled in the homestead exemption program, indicated by a non-zero value. There are 246,853 properties with a homestead exemption.
 ```{r}
-properties <- read.csv("opa_properties_public.csv")
+properties <- read.csv("Data/opa_properties_public.csv")
 filtered_properties <- properties %>%
   mutate(exemption = ifelse(homestead_exemption == 0, 0, 1))
 ```
@@ -151,6 +151,22 @@ print(num_blank_zoning)
 residential_properties <- filtered_properties %>% filter(is_residential == 1)
 
 ```
+#### transform to geodata
+
+```{r}
+properties_sf <- st_as_sf(residential_properties, wkt = "shape", crs = 2272)
+```
+
+```{r}
+census_tracts <- st_read("Data/phila_census1.gpkg")
+```
+
+```{r}
+census_tracts <- st_transform(census_tracts, 2272)
+properties_tract <- st_join(properties_sf, census_tracts)
+```
+
+
 
 #### Predictor Variables 1 & 2: Eligibility Characteristics
 The first predictor variable is based off the key eligibility criteria of the Homestead Exemption program -- whether a homeowner resides long-term in the property itself. The closest proxy of this is whether the mailing street ('mailing_street') address is the same as the property street address ('location'), as the mailing address of the owner is often where the owner lives long-term.
@@ -178,6 +194,8 @@ residential_properties <- residential_properties %>% mutate(potential_otherprog 
 ```{r}
 residential_properties <- residential_properties %>% mutate(is_deep = ifelse(depth >150, 1, 0)) 
 ```
+
+#### Predictor Variables 5 & 6: Petentail Commercial Activity
 
 
 # Modeling
