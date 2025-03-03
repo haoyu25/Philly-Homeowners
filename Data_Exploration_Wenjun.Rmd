@@ -1,0 +1,453 @@
+---
+title: "practicum_Wenjun"
+author: "Wenjun Zhu"
+date: "2025-03-03"
+output: html_document
+---
+
+# Install necessary libraries
+```{r}
+library(dplyr)
+library(ggplot2)
+library(tidyverse)
+library(caret)
+library(knitr) 
+library(pscl)
+library(plotROC)
+library(pROC)
+library(scales)
+options(scipen = 999)
+root.dir = "https://raw.githubusercontent.com/urbanSpatial/Public-Policy-Analytics-Landing/master/DATA/"
+source("https://raw.githubusercontent.com/urbanSpatial/Public-Policy-Analytics-Landing/master/functions.r")
+```
+
+# 1. Data Preparation
+# 1.1 Split into Residential and Commercial Properties
+```{r}
+# Load and inspect the properties dataset
+properties <- read.csv("/Users/zhuzhu/Desktop/Penn/25spring/practicum/data/opa_properties_public.csv")
+tail(properties, 10)
+colnames(properties)
+# Add exemption and residential status columns
+filtered_properties <- properties %>%
+  mutate(exemption = ifelse(homestead_exemption == 0, 0, 1))
+filtered_properties <- filtered_properties %>% mutate(is_residential = ifelse(zoning %in% c("RSA1", "RSA2", "RSA3", "RSA4", "RSA5", "RM1", "RM1|RSA5", "RM2", "RM3", "RM4","CMX1", "CMX2", "CMX2.5","CMX3", "CMX4", "CMX5","IRMX"), 1, 0))
+# Check column names of the filtered dataset
+colnames(filtered_properties)
+```
+
+# 1.2 Cleaned_properties: Select Relevant Columns
+Select key columns for analysis: parcel_number, exemption, is_residential, and shape
+```{r}
+cleaned_properties <- filtered_properties %>%
+  select(parcel_number, exemption, is_residential, shape)
+
+head(cleaned_properties)
+colnames(cleaned_properties)
+```
+
+
+# 1.3 Combine Properties Data with Assessment Data
+```{r}
+# Load and inspect the assessments dataset
+assessments2 <- read.csv("~/Desktop/Penn/25spring/practicum/data/assessments.csv")
+colnames(assessments2)
+head(assessments2, 10)
+
+# Merge properties and assessments data by parcel_number
+assessment_combined <- assessments2 %>%
+  left_join(cleaned_properties, by = "parcel_number")
+
+head(assessment_combined)
+```
+# 2. Residential Property History Analysis
+## 2.1 Filter Residential Data
+```{r}
+# Filter the combined dataset to include only residential properties
+residential_assessment_combined <- assessment_combined %>%
+  filter(is_residential == 1)
+head(residential_assessment_combined)
+colnames(residential_assessment_combined)
+```
+
+
+## 2.2 Market Value Growth Rate by Exemption Status (2016-2025)
+```{r}
+library(dplyr)
+library(ggplot2)
+library(scales)
+
+# Calculate yearly market value and growth rate by exemption status
+yearly_market_value <- residential_assessment_combined %>%
+  group_by(year, exemption) %>%
+  summarise(total_market_value = sum(market_value, na.rm = TRUE), .groups = 'drop')
+
+
+yearly_market_value <- yearly_market_value %>%
+  arrange(exemption, year) %>%
+  group_by(exemption) %>%
+  mutate(market_value_growth_rate = (total_market_value - lag(total_market_value)) / lag(total_market_value) * 100)
+
+# Filter data for the years 2016-2025
+yearly_market_value_filtered <- yearly_market_value %>%
+  filter(year >= 2016 & year <= 2025)
+
+# Plot the market value growth rate
+ggplot(yearly_market_value_filtered, aes(x = year, y = market_value_growth_rate, color = as.factor(exemption))) +
+  geom_line(size = 1.2) +
+  geom_point(size = 2) +
+  scale_x_continuous(breaks = seq(2016, 2025, by = 1)) + 
+  scale_y_continuous(labels = percent_format(scale = 1)) + 
+  scale_color_manual(values = c("0" = "#E42524", "1" = "#00ADA9"), labels = c("No Exemption", "With Exemption")) +
+  labs(title = "Market Value Growth Rate (2016-2025)", 
+       x = "Year", 
+       y = "Growth Rate (%)", 
+       color = "Exemption Status") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+print(yearly_market_value_filtered)
+
+```
+
+```{r}
+# Calculate average growth rate by exemption status
+growth_comparison <- yearly_market_value_filtered %>%
+  group_by(exemption) %>%
+  summarise(market_value_growth_rate = mean(market_value_growth_rate, na.rm = TRUE))
+
+print(growth_comparison)
+
+```
+
+
+## 2.3 Summary Statistics for Each Parcel
+
+Mean values for market_value, taxable_land, taxable_building, exempt_land, and exempt_building.
+Growth rate (average annual growth).
+Standard deviation (to measure volatility).
+
+```{r}
+# Summarize key metrics for each parcel: mean, growth rate, and standard deviation
+residential_summary <- residential_assessment_combined %>%
+  group_by(parcel_number) %>%
+  summarise(
+    avg_market_value = mean(market_value, na.rm = TRUE),
+    avg_taxable_land = mean(taxable_land, na.rm = TRUE),
+    avg_taxable_building = mean(taxable_building, na.rm = TRUE),
+    avg_exempt_land = mean(exempt_land, na.rm = TRUE),
+    avg_exempt_building = mean(exempt_building, na.rm = TRUE),
+    growth_market_value = (last(market_value) - first(market_value)) / first(market_value) * 100,
+    sd_market_value = sd(market_value, na.rm = TRUE),
+    sd_taxable_land = sd(taxable_land, na.rm = TRUE),
+    sd_taxable_building = sd(taxable_building, na.rm = TRUE)
+  )
+
+head(residential_summary)
+```
+
+```{r}
+# Add exemption and residential status to the summary dataset
+residential_summary <- residential_summary %>%
+  left_join(
+    residential_assessment_combined %>%
+      select(parcel_number, exemption, is_residential, shape) %>%
+      distinct(parcel_number, .keep_all = TRUE),  # Keep one row per parcel_number
+    by = "parcel_number"
+  )
+
+head(residential_summary)
+```
+
+## 2.4 Analysis by Exemption Status
+```{r}
+# Summarize metrics by exemption status
+residential_summary_analysis <- residential_summary %>%
+  group_by(exemption) %>%
+  summarise(
+    avg_market_value = mean(avg_market_value, na.rm = TRUE),
+    avg_taxable_land = mean(avg_taxable_land, na.rm = TRUE),
+    avg_taxable_building = mean(avg_taxable_building, na.rm = TRUE),
+    avg_exempt_land = mean(avg_exempt_land, na.rm = TRUE),
+    avg_exempt_building = mean(avg_exempt_building, na.rm = TRUE),
+    sd_market_value = mean(sd_market_value, na.rm = TRUE),
+    sd_taxable_land = mean(sd_taxable_land, na.rm = TRUE),
+    sd_taxable_building = mean(sd_taxable_building, na.rm = TRUE)
+  ) 
+
+# Convert the summary data to long format for visualization
+library(tidyr)
+summary_residential_long <- residential_summary_analysis %>%
+  pivot_longer(
+    cols = -exemption, 
+    names_to = "metric", 
+    values_to = "value"
+  )
+```
+
+
+
+## 2.5 Visualizing Key Metrics by Exemption Status
+```{r}
+# Plot residential property metrics by exemption status
+library(ggplot2)
+custom_colors <- c("0" = "#E42524",  
+                   "1" = "#00ADA9")  
+
+ggplot(summary_residential_long, aes(x = metric, y = value, fill = as.factor(exemption))) +
+  geom_bar(stat = "identity", position = "dodge") +
+  scale_fill_manual(values = custom_colors, labels = c("No Exemption", "With Exemption")) +
+  labs(title = "Residential Property Metrics by Homestead Exemption Status (2015-2025)",
+       x = "Metric", 
+       y = "Value", 
+       fill = "Exemption Status") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+```
+
+### Plot Only "avg_market_value" and "sd_market_value"
+
+```{r}
+library(ggplot2)
+library(dplyr)
+
+summary_filtered <- summary_residential_long %>%
+  filter(metric %in% c("avg_market_value", "sd_market_value"))
+
+custom_colors <- c("0" = "#E42524",  
+                   "1" = "#00ADA9") 
+
+ggplot(summary_filtered, aes(x = metric, y = value, fill = as.factor(exemption), color = as.factor(exemption))) +
+  geom_bar(stat = "identity", position = position_dodge(width = 0.7), width = 0.6, alpha = 0.85) + 
+  geom_text(aes(label = round(value, 0)), 
+            position = position_dodge(width = 0.7), 
+            vjust = -0.5, size = 4.5, fontface = "bold") + 
+  ylim(0, max(summary_filtered$value) * 1.2) +
+  scale_fill_manual(values = custom_colors, labels = c("No Exemption", "With Exemption")) +
+  scale_color_manual(values = custom_colors, guide = "none") +  
+  labs(title = "Average and Standard Deviation of Market Value (2015-2025)",
+       subtitle = "Comparison of Properties With and Without Exemption",
+       x = "Metric", 
+       y = "Value ($)", 
+       fill = "Exemption Status") +
+  theme_minimal(base_size = 14) +
+  theme(axis.text.x = element_text(angle = 0, vjust = 0.5, hjust = 0.5, face = "bold"),
+        axis.title = element_text(face = "bold"),
+        legend.position = "top",
+        plot.title = element_text(face = "bold", size = 16),
+        plot.subtitle = element_text(size = 13, color = "gray40"))
+
+```
+
+
+# 3. Yearly Trends in Residential Data
+## 3.1 Prepare Yearly Residential Data
+```{r}
+yearly_residential_data <- assessments2 %>%
+  inner_join(cleaned_properties, by = "parcel_number") %>%
+  filter(is_residential == 1)  # Keep only residential properties
+```
+
+
+## 3.2 Summarize Yearly Residential Data
+```{r}
+# Summarize yearly residential data by exemption status
+yearly_residential_summary <- yearly_residential_data %>%
+  group_by(year, exemption) %>%
+  summarise(
+    market_value = mean(market_value, na.rm = TRUE),
+    taxable_land = mean(taxable_land, na.rm = TRUE),
+    taxable_building = mean(taxable_building, na.rm = TRUE),
+    exempt_land = mean(exempt_land, na.rm = TRUE),
+    exempt_building = mean(exempt_building, na.rm = TRUE),
+    .groups = "drop"
+  )
+
+```
+
+
+## 3.3 Visualize Yearly Trends
+```{r}
+# Plot yearly changes in residential metrics
+library(ggplot2)
+library(tidyr)
+
+# Convert the data to long format for better visualization
+yearly_residential_long <- yearly_residential_summary %>%
+  pivot_longer(
+    cols = c(market_value, taxable_land, taxable_building, exempt_land, exempt_building),
+    names_to = "metric",
+    values_to = "value"
+  )
+
+# Filter data for years 2015 and later
+yearly_residential_long_filtered <- yearly_residential_long %>%
+  filter(year >= 2015)
+
+custom_colors <- c("0" = "#E42524",  # Red (No Exemption)
+                   "1" = "#00ADA9")  # Green (With Exemption)
+
+# Generate individual plots for each metric
+plots <- yearly_residential_long_filtered %>%
+  split(.$metric) %>%
+  lapply(function(df) {
+    ggplot(df, aes(x = year, y = value, color = as.factor(exemption))) +
+      geom_line(size = 1.2) +
+      geom_point(size = 2) +
+      scale_x_continuous(breaks = seq(2015, max(df$year), by = 1)) +
+      scale_color_manual(values = custom_colors, labels = c("No Exemption", "With Exemption")) +
+      labs(title = paste("Yearly Change in", unique(df$metric)),
+           x = "Year", 
+           y = "Value", 
+           color = "Exemption Status") +
+      theme_minimal() +
+      theme(axis.text.x = element_text(angle = 45, hjust = 1))
+  })
+
+
+for (p in plots) {
+  print(p)
+}
+```
+
+
+
+
+# 1. Filter and Merge Residential Properties with Transfers Data
+```{r}
+transfers2 <- read.csv("~/Desktop/Penn/25spring/practicum/data/RTT_SUMMARY.csv")
+colnames(transfers2)
+table(transfers2$document_type)
+
+```
+
+
+```{r}
+library(dplyr)
+
+residential_properties <- cleaned_properties %>%
+  filter(is_residential == 1)
+
+residential_transfers <- residential_properties %>%
+  left_join(transfers2, by = c("parcel_number" = "opa_account_num"))
+```
+
+# 2.Deed Type Analysis
+```{r}
+residential_transfers <- residential_transfers %>%
+  mutate(document_type = ifelse(is.na(document_type), "Unknown", document_type))
+```
+
+
+```{r}
+exemption_by_document_type <- residential_transfers %>%
+  group_by(document_type) %>%
+  summarise(
+    total_count = n(),
+    exemption_count = sum(exemption == 1),
+    exemption_proportion = exemption_count / total_count * 100
+  ) %>%
+  arrange(desc(exemption_proportion))
+
+print(exemption_by_document_type)
+```
+
+
+```{r}
+## binomial model:DEED - DECEASED, SATISFACTION OF MORTGAGE, MORTGAGE, ASSIGNMENT OF MORTGAGE
+document_exemption_model <- glm(exemption ~ document_type, data = residential_transfers, family = binomial)
+
+summary(document_exemption_model)
+```
+
+
+# 3. Minimal Financial Consideration Analysis
+```{r}
+library(dplyr)
+
+minimal_threshold <- 10 
+
+minimal_financial_transfers <- residential_transfers %>%
+  filter(total_consideration <= minimal_threshold)
+```
+
+```{r}
+
+exemption_summary <- minimal_financial_transfers %>%
+  group_by(exemption) %>%
+  summarise(
+    count = n(),
+    proportion = count / nrow(minimal_financial_transfers) * 100
+  )
+
+print(exemption_summary)
+```
+
+```{r}
+document_exemption_model <- glm(exemption ~ document_type, data = residential_transfers, family = binomial)
+
+summary(document_exemption_model)
+```
+
+# 4. Recent(2y) Transfer Analysis
+```{r}
+library(dplyr)
+library(lubridate)
+
+# Convert recording_date to Date format
+residential_transfers <- residential_transfers %>%
+  mutate(recording_date = as.Date(recording_date, format="%Y-%m-%d"))
+
+# Get the current year
+current_year <- year(Sys.Date())
+```
+
+
+```{r}
+# Filter and summarize recent transfers
+residential_transfers_2y <- residential_transfers %>%
+  filter(!is.na(recording_date)) %>%
+  group_by(parcel_number) %>%
+  summarise(
+    latest_transfer_year = max(year(recording_date), na.rm = TRUE),  # Most recent transfer year
+    exemption = first(exemption),  # Retain exemption status
+    .groups = "drop"
+  ) %>%
+  mutate(
+    latest_transfer_year = ifelse(is.infinite(latest_transfer_year), NA, latest_transfer_year)  # Handle infinite values
+  )
+
+# Mark properties with recent transfers (within 2 years)
+residential_transfers_2y <- residential_transfers_2y %>%
+  mutate(has_recent_transfer = ifelse(!is.na(latest_transfer_year) & latest_transfer_year >= (current_year - 2), 1, 0))
+
+# View results
+print(head(residential_transfers_2y))
+```
+
+```{r}
+# Calculate recent transfer rates by exemption status
+exemption_transfer_analysis_residential <- residential_transfers_2y %>%
+  group_by(exemption) %>%
+  summarise(
+    avg_recent_transfer = mean(has_recent_transfer, na.rm = TRUE) * 100  # Convert to percentage
+  )
+
+# View results
+print(exemption_transfer_analysis_residential)
+```
+
+On average, 20.07% of properties without a homestead exemption had a transfer in the past two years, compared to 16.17% of those with an exemption. This indicates that properties without exemptions tend to have a slightly higher likelihood of recent transactions.
+
+
+```{r}
+# Create a contingency table for exemption and recent transfers
+exemption_transfer_table <- table(residential_transfers_2y$exemption, residential_transfers_2y$has_recent_transfer)
+
+# Perform chi-square test
+chi_test_result <- chisq.test(exemption_transfer_table)
+
+# View test results
+print(chi_test_result)
+```
+
