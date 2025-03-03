@@ -62,6 +62,7 @@ library(plotROC)
 library(pROC)
 library(scales)
 library(car)
+library(data.table)
 
 options(scipen = 999)
 root.dir = "https://raw.githubusercontent.com/urbanSpatial/Public-Policy-Analytics-Landing/master/DATA/"
@@ -119,7 +120,7 @@ Every observation in the Property and Assessment History dataset is one property
 #### Creation of dependent variable
 There is a column 'homestead_exemption' within this dataset which indicates the taxable portion amount removed from the property assessment of the house. It should be noted that there are 14 properties that had a homestead exemption larger then $100,000, the maximum possible amount, which is suspected to be a clerical error and has been flagged to the PhillyStat360 team. The dependent variable for the model is derived from this feature by creating a binary variable on whether or not the property is currently enrolled in the homestead exemption program, indicated by a non-zero value. There are 246,853 properties with a homestead exemption.
 ```{r}
-properties <- read.csv("Data/opa_properties_public.csv")
+properties <- fread("Data/opa_properties_public.csv")
 filtered_properties <- properties %>%
   mutate(exemption = ifelse(homestead_exemption == 0, 0, 1))
 ```
@@ -197,6 +198,97 @@ residential_properties <- residential_properties %>% mutate(is_deep = ifelse(dep
 
 #### Predictor Variables 5 & 6: Petentail Commercial Activity
 
+```{r}
+business_license<-st_read("Data/business_licenses.geojson")
+```
+
+```{r}
+rental_license<-business_license%>%
+  filter(licensetype=="Rental",
+         #rentalcategory=="Residential Dwellings",
+         licensestatus %in% c("Active"))%>%
+  select(opa_account_num)%>%
+  st_drop_geometry()%>%
+  distinct() %>% 
+  filter(!is.na(opa_account_num)) %>% 
+  mutate(rental_license = 1)  
+```
+
+```{r}
+properties_rental <- properties_sf %>%
+  mutate(parcel_number = as.character(parcel_number))%>%
+  left_join(rental_license, by = c("parcel_number" = "opa_account_num"))%>%
+  mutate(rental_license = replace_na(rental_license, 0))
+```
+
+```{r}
+ggplot(properties_rental, aes(x = factor(rental_license), fill = factor(exemption))) +
+  geom_bar(position = "dodge") +  
+  geom_text(stat = "count", aes(label = ..count.., color = factor(exemption)),  
+            position = position_dodge(width = 0.9),  
+            vjust = -0.5,  
+            size = 3) +  
+  scale_fill_manual(values = c("0" = "#e42524", "1" = "#00ADA9"),  
+                    labels = c("0" = "No Exemption", "1" = "With Exemption")) +  
+  scale_color_manual(values = c("0" = "#e42524", "1" = "#00ADA9")) +  
+  labs(title = "Rental Licenses Metrics by Homestead Exemption Status",
+       x = "Rental Licenses",
+       y = "Count",
+       fill = "Exemption Status") +
+  theme_minimal() +
+  theme(legend.position = "none") 
+```
+
+```{r}
+commercial_license<-business_license%>%
+  filter(licensestatus %in% c("Active"))%>%
+  filter(licensetype %in% c(
+    "Food Caterer",
+    "Food Establishment, Retail Perm Location (Large)",
+    "Food Establishment, Retail Permanent Location",
+    "Food Manufacturer / Wholesaler",
+    "Food Preparing and Serving",
+    "Food Preparing and Serving (30+ SEATS)",
+    "Motor Vehicle Repair / Retail Mobile Dispensing",
+    "Pawn Shop",
+    "Precious Metal Dealer",
+    "Public Garage / Parking Lot",
+    "Residential Property Wholesaler",
+    "Tire Dealer",
+    "Tow Company",
+    "Vacant Commercial Property"
+  ))%>%
+  select(opa_account_num)%>%
+  st_drop_geometry()%>%
+  distinct() %>% 
+  filter(!is.na(opa_account_num)) %>% 
+  mutate(commercial_license = 1) 
+```
+
+```{r}
+properties_commercial <- properties_sf %>%
+  mutate(parcel_number = as.character(parcel_number))%>%
+  left_join(commercial_license, by = c("parcel_number" = "opa_account_num"))%>%
+  mutate(commercial_license = replace_na(commercial_license, 0))
+```
+
+```{r}
+ggplot(properties_commercial, aes(x = factor(commercial_license), fill = factor(exemption))) +
+  geom_bar(position = "dodge") +  
+  geom_text(stat = "count", aes(label = ..count.., color = factor(exemption)),  
+            position = position_dodge(width = 0.9),  
+            vjust = -0.5,  
+            size = 3) +  
+  scale_fill_manual(values = c("0" = "#e42524", "1" = "#00ADA9"),  
+                    labels = c("0" = "No Exemption", "1" = "With Exemption")) +  
+  scale_color_manual(values = c("0" = "#e42524", "1" = "#00ADA9")) +  
+  labs(title = "Commercial Licenses Metrics by Homestead Exemption Status",
+       x = "Commercial Licenses (Exclude Rental)",
+       y = "Count",
+       fill = "Exemption Status") +
+  theme_minimal() +
+  theme(legend.position = "none") 
+```
 
 # Modeling
 
