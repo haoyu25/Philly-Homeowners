@@ -1,6 +1,6 @@
 ---
 title: "Optimizing Entitlement Assistance Outreach to Homeowners"
-author: "Claudia Low, Rachel Midgett, Haoyu Zhu, Wenjun Zhu"
+author: "Claudia Low, Haoyu Zhu, Rachel Midgett, Wenjun Zhu"
 date: "2025 Spring"
 output:
   html_document:
@@ -72,9 +72,7 @@ inflationAdjust2017 <- 1.0213
 inflationAdjust2018 <- 1.0244
 
 # Color palette
-palette2 <- c('#6683a9', '#BF4146')
-palette5 <- c('#BF4146', '#E5A186', '#F1C8BB', '#B3CADB','#6683a9')
-
+colors <- c("0" = "#e42524", "1" = "#00ADA9")
 ```
 
 # Introduction
@@ -118,17 +116,71 @@ Six relevant datasets are merged with this primary dataset with common identifyi
 ### Property and Assessment History
 Every observation in the Property and Assessment History dataset is one property in Philadelphia, with a total of 584,049 properties and 79 features. As this dataset is updated daily, the one used for this project is updated as of 31 January 2025. 
 
-The dependent variable for the model is the binary variable found within this dataset on whether or not the property is currently enrolled in the homestead exemption program.
+#### Creation of dependent variable
+There is a column 'homestead_exemption' within this dataset which indicates the taxable portion amount removed from the property assessment of the house. It should be noted that there are 14 properties that had a homestead exemption larger then $100,000, the maximum possible amount, which is suspected to be a clerical error and has been flagged to the PhillyStat360 team. The dependent variable for the model is derived from this feature by creating a binary variable on whether or not the property is currently enrolled in the homestead exemption program, indicated by a non-zero value. There are 246,853 properties with a homestead exemption.
+```{r}
+properties <- read.csv("opa_properties_public.csv")
+filtered_properties <- properties %>%
+  mutate(exemption = ifelse(homestead_exemption == 0, 0, 1))
+```
+
+#### Filtering to residential properties
+```{r}
+filtered_properties <- filtered_properties %>% mutate(is_residential = ifelse(zoning %in% c(
+  "RM1", "RM2", "RM3", "RM4",
+  "RSA1", "RSA2", "RSA3", "RSA4", "RSA5", "RSA6", 
+  "RSD1", "RSD2", "RSD3", 
+  "RM1|RSA5", "RSD1|RSD3", "RSA5|RSA5",
+  "RTA1", 
+  "CMX1", "CMX2", "CMX2.5", "CMX3", "CMX4", "CMX5", "IRMX"), 1, 0))
+
+# Look into exemption status by zoning code
+exemptionbyzoning <- filtered_properties %>%
+  group_by(zoning, exemption) %>%
+  summarise(count = n(), .groups = "drop") %>%
+  tidyr::pivot_wider(names_from = exemption, values_from = count, values_fill = list(count = 0)) %>%
+  rename(No_Exemption = `0`, Exemption = `1`)
+
+# Look into number of blank / NA zoning codes
+num_blank_zoning <- properties %>%
+  filter(zoning == "" | is.na(zoning) | str_trim(zoning) == "") %>%
+  nrow()
+
+print(num_blank_zoning)
+
+residential_properties <- filtered_properties %>% filter(is_residential == 1)
+
+```
+
+#### Predictor Variables 1 & 2: Eligibility Characteristics
+The first predictor variable is based off the key eligibility criteria of the Homestead Exemption program -- whether a homeowner resides long-term in the property itself. The closest proxy of this is whether the mailing street ('mailing_street') address is the same as the property street address ('location'), as the mailing address of the owner is often where the owner lives long-term.
+
+The second predictor variable is based off the ineligibility for the homestead exemption if the homeowner is already enrolled in particular exisitng tax programs such as the LOOP and the residential tax abatement. This is determined if there is an existing tax relief that exempts a portion of the building from tax. If there is a non-zero value for 'exempt-building' and the property is not currently enrolled in the homestead exemption, it is potentially already enrolled in LOOP or in residential tax abatement.
+
+```{r}
+residential_properties <- residential_properties %>% mutate(same_address = ifelse(mailing_street == location, 1, 0))
+
+ggplot(residential_properties, aes(x = same_address, fill = as.factor(exemption))) +
+    geom_bar(position = "dodge") +
+    scale_fill_manual(values = colors, labels = c("No Exemption", "With Exemption")) +
+    labs(title = "Mailing Address Matches Property Address", x = "Address Match", y = "Count", fill = "Homestead Exemption") +
+    theme_minimal(base_size = 14) +
+    theme(panel.grid.major = element_line(color = "grey90"),
+          panel.grid.minor = element_blank(),
+          legend.position = "bottom",
+         plot.title = element_text(vjust = 0.5))
+
+residential_properties <- residential_properties %>% mutate(potential_otherprog = ifelse(exempt_building > 0 & exemption == 0, 1, 0))
+
+```
+
+#### Predictor Variables 3 & 4: Property Characteristics
+```{r}
+residential_properties <- residential_properties %>% mutate(is_deep = ifelse(depth >150, 1, 0)) 
+```
 
 
-
-
-
-### Dependent Variable: Property 
-
-### Independent Variables
-
-## Modeling
+# Modeling
 
 
 
