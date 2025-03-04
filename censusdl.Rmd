@@ -1,0 +1,291 @@
+---
+title: "Census_Setup"
+output: html_document
+date: "2025-02-09"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+```{r}
+library(tidycensus)
+
+# Load available variables
+vars_2022 <- load_variables(2022, "acs5", cache = TRUE)
+
+acs_vars <- c("B01003_001E", # Total Pop
+              "B17001_001E", # Pop for poverty status
+              "B17001_002E", # Below poverty level
+              "B15003_022E", # Bachelor's degree
+              "B05002_013E", # Foreign-born
+              "B01002_001E", # Median age
+              "B02001_003E", # Black
+              "B02001_002E", # White
+              "B03002_012E", # Hispanic
+              "B02001_005E", # Asian
+              "B11001_001E", # Households
+              "B19013_001E", # Median income
+              "B16002_001E", # Limited English HH
+              "B16002_002E", # English only HH
+              "B25077_001E", # Median home value
+              "B25001_001E", # Total housing units
+              "B25091_002E", # Units with mortgage
+              "B25002_002E", # Occupied units
+              "B25002_003E", # Vacant units
+              "B25003_003E", # Renter HH
+              "B25003_002E", # Owner HH
+              "B11003_001E", # Family households
+              "B25004_001E", # Vacancy status
+              "B25004_002E", # For rent
+              "B25004_004E", # For sale
+              paste0("B25091_", sprintf("%03d", 7:23), "E"), # Mortgage cost burden
+              paste0("B25106_", sprintf("%03d", 2:23), "E"), # Owner cost burden
+              paste0("B25007_", sprintf("%03d", 2:11), "E"))  # Age of householder
+```
+
+
+```{r}
+#use this to look for available variables
+#View(vars_2022)
+```
+
+
+```{r}
+philaCensus1 <- get_acs(
+    geography = "tract",
+    variables = acs_vars,
+    year = 2022,
+    state = "PA",
+    county = "philadelphia",
+    geometry = FALSE,
+    output = "wide"
+)%>%
+  rename(
+    # Demographics
+    total_pop = B01003_001E,
+    poverty_pop = B17001_001E,
+    poverty_below = B17001_002E,
+    bachelors = B15003_022E,
+    foreign_born = B05002_013E,
+    median_age = B01002_001E,
+    pop_black = B02001_003E,
+    pop_white = B02001_002E,
+    pop_hispanic = B03002_012E,
+    pop_asian = B02001_005E,
+    total_hh = B11001_001E,
+    median_income = B19013_001E,
+    limited_english = B16002_001E,
+    english_only = B16002_002E,
+    median_home_value = B25077_001E,
+    housing_units = B25001_001E,
+    units_mortgage = B25091_002E,
+    occupied_units = B25002_002E,
+    vacant_units = B25002_003E,
+    renter_hh = B25003_003E,
+    owner_hh = B25003_002E,
+    family_hh = B11003_001E,
+    vacant_status = B25004_001E,
+    for_rent = B25004_002E,
+    for_sale = B25004_004E,
+    
+    # B25007 Age of Householder Series
+    owner_total = B25007_002E,
+    owner_15to24 = B25007_003E,
+    owner_25to34 = B25007_004E,
+    owner_35to44 = B25007_005E,
+    owner_45to54 = B25007_006E,
+    owner_55to59 = B25007_007E,
+    owner_60to64 = B25007_008E,
+    owner_65to74 = B25007_009E,
+    owner_75to84 = B25007_010E,
+    owner_85plus = B25007_011E,
+    
+    # B25106 Owner Cost Burden Series
+    owner_costs_total = B25106_002E,
+    owner_under20k = B25106_003E,
+    owner_under20k_under20pct = B25106_004E,
+    owner_under20k_20to29pct = B25106_005E,
+    owner_under20k_over30pct = B25106_006E,
+    owner_20to35k = B25106_007E,
+    owner_20to35k_under20pct = B25106_008E,
+    owner_20to35k_20to29pct = B25106_009E,
+    owner_20to35k_over30pct = B25106_010E,
+    owner_35to50k = B25106_011E,
+    owner_35to50k_under20pct = B25106_012E,
+    owner_35to50k_20to29pct = B25106_013E,
+    owner_35to50k_over30pct = B25106_014E,
+    owner_50to75k = B25106_015E,
+    owner_50to75k_under20pct = B25106_016E,
+    owner_50to75k_20to29pct = B25106_017E,
+    owner_50to75k_over30pct = B25106_018E,
+    owner_75kplus = B25106_019E,
+    owner_75kplus_under20pct = B25106_020E,
+    owner_75kplus_20to29pct = B25106_021E,
+    owner_75kplus_over30pct = B25106_022E,
+    owner_zero_neg_income = B25106_023E,
+    
+    # B25091 Mortgage Cost Burden Series
+    mortgage_under20k_over30pct = B25091_007E,
+    mortgage_20to35k_over30pct = B25091_011E,
+    mortgage_35to50k_over30pct = B25091_015E,
+    mortgage_50to75k_over30pct = B25091_019E,
+    mortgage_75kplus_over30pct = B25091_023E
+  ) %>%
+  select(-matches("B\\d+"))
+
+```
+
+
+```{r}
+philaCensus1 <- philaCensus1 %>%
+  mutate(
+  # Demographics
+  pct_white = ifelse(total_pop > 0, (pop_white / total_pop) * 100, NA_real_),
+  pct_black = ifelse(total_pop > 0, (pop_black / total_pop) * 100, NA_real_),
+  pct_hispanic = ifelse(total_pop > 0, (pop_hispanic / total_pop) * 100, NA_real_),
+  pct_asian = ifelse(total_pop > 0, (pop_asian / total_pop) * 100, NA_real_),
+  pct_foreign_born = ifelse(total_pop > 0, (foreign_born / total_pop) * 100, NA_real_),
+  
+  # Vacancy Rates
+  overall_vacancy_rate = ifelse(housing_units > 0, (vacant_units / housing_units) * 100, NA_real_),
+  owner_vacancy_rate = ifelse((for_sale + owner_hh) > 0, (for_sale / (for_sale + owner_hh)) * 100, NA_real_),
+  rental_vacancy_rate = ifelse((for_rent + renter_hh) > 0, (for_rent / (for_rent + renter_hh)) * 100, NA_real_),
+  
+  # Education & Economic Mobility
+  bach_degree_rate = ifelse(total_pop > 0, (bachelors / total_pop) * 100, NA_real_),
+  income_to_homevalue = ifelse(median_home_value > 0, median_income / median_home_value, NA_real_),
+  
+  # Economic Variables
+  cost_burden_rate = ifelse(owner_hh > 0,
+    ((owner_under20k_over30pct + 
+      owner_20to35k_over30pct +
+      owner_35to50k_over30pct +
+      owner_50to75k_over30pct +
+      owner_75kplus_over30pct) / owner_hh) * 100,
+    NA_real_),
+  
+  mortgage_burden_rate = ifelse(units_mortgage > 0,
+    pmin(((mortgage_under20k_over30pct + 
+      mortgage_20to35k_over30pct + 
+      mortgage_35to50k_over30pct + 
+      mortgage_50to75k_over30pct + 
+      mortgage_75kplus_over30pct) / units_mortgage) * 100,
+    100),
+    NA_real_),
+  
+  poverty_rate = ifelse(poverty_pop > 0, (poverty_below / poverty_pop) * 100, NA_real_),
+  
+  # Housing Affordability
+  median_multiple = case_when(
+    median_income <= 0 ~ NA_real_,
+    median_home_value/median_income > 15 ~ NA_real_,
+    TRUE ~ median_home_value/median_income
+  ),
+  
+  # Age-Based Ownership
+  young_owner_rate = ifelse(owner_total > 0, ((owner_15to24 + owner_25to34) / owner_total) * 100, NA_real_),
+  middle_owner_rate = ifelse(owner_total > 0,
+    pmin(((owner_35to44 + owner_45to54 + owner_55to59 + 
+      owner_60to64) / owner_total) * 100, 100),
+    NA_real_),
+  senior_owner_rate = ifelse(owner_total > 0, ((owner_65to74 + owner_75to84 + owner_85plus) / owner_total) * 100, NA_real_),
+  
+  # Household Composition
+  family_hh_rate = ifelse(total_hh > 0, (family_hh / total_hh) * 100, NA_real_),
+  limited_english_rate = ifelse(total_hh > 0, ((limited_english - english_only) / total_hh) * 100, NA_real_),
+  
+  # Spatial Patterns
+  diversity_index = 1 - ((pct_white/100)^2 + (pct_black/100)^2 + (pct_hispanic/100)^2 + (pct_asian/100)^2),
+  
+  gentrification_risk = case_when(
+    is.na(bach_degree_rate) | is.na(cost_burden_rate) | is.na(median_home_value) ~ NA_real_,
+    TRUE ~ (bach_degree_rate/100 + cost_burden_rate/100 + 
+      median_home_value/max(median_home_value, na.rm=TRUE)) / 3
+  )
+)
+
+```
+
+
+```{r}
+library(sf)
+
+# Read the shapefile
+phila_tracts <- st_read("C:/Users/rache/Documents/tl_2020_42101_tract20.shp")
+
+```
+
+
+```{r}
+# First, ensure GEOIDs match in format
+phila_tracts <- phila_tracts %>%
+  rename(GEOID = GEOID20)
+# Join the census data with the shapefile
+phila_census1 <- phila_tracts %>%
+  left_join(philaCensus1, by = "GEOID")
+```
+
+
+```{r}
+phila_census1 <- phila_census1 %>%
+  mutate(
+    # Convert ALAND20 from square meters to square miles (1 sq mile = 2,589,988.11 sq meters)
+    area_sqmi = ALAND20 / 2589988.11,
+    # Calculate population density (people per square mile)
+    pop_density = total_pop / area_sqmi
+  )
+
+```
+
+
+```{r}
+# create final dataset
+phila_census1_clean <- phila_census1 %>%
+  select(
+    # Keep primary identifier
+    GEOID, ALAND20,
+    
+    # Keep demographics
+    median_age, total_pop,occupied_units, vacant_units, renter_hh, owner_hh,
+    
+    # Keep calculated percentages/rates
+    pct_white, pct_black, pct_hispanic, pct_asian,
+    pct_foreign_born, overall_vacancy_rate, 
+    owner_vacancy_rate, rental_vacancy_rate,
+    bach_degree_rate, poverty_rate,
+    young_owner_rate, middle_owner_rate, senior_owner_rate,
+    family_hh_rate, limited_english_rate, pop_density,
+    
+    # Keep key economic indicators
+    median_income, median_home_value, median_multiple,
+    cost_burden_rate, mortgage_burden_rate,
+    
+    # Keep composite measures
+    diversity_index, gentrification_risk,
+    
+    # Keep geometry for mapping
+    geometry
+  )
+
+```
+
+
+```{r}
+# save dataset
+# set path and name file!
+st_write(phila_census1_clean,
+         "C:/Users/rache/Documents/philacensus/phila_census12.gpkg",
+         layer = "phila_census",  # specify layer name
+         driver = "GPKG",
+         delete_layer = TRUE)     # overwrites any existing layer
+
+```
+
+```{r}
+check <- st_read("C:/Users/rache/Documents/philacensus/phila_census1.gpkg")
+
+```
+
+

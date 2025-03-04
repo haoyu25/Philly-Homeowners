@@ -1,0 +1,556 @@
+# Combining all datasets 
+```{r}
+combined <- left_join(residential_properties, properties_comlicences_taxbalance, by = "objectid")
+
+history_transfers <- read.csv("history_transfers_2.0.csv") %>% select(1, 11:20) %>% rename(avg_growth_rate = avg_growth_rate.x)
+combinedfinal <- left_join(combined, history_transfers, by = "parcel_number")
+
+churnTrain$zip_code <- as.integer(as.factor(churnTrain$zip_code))
+```
+
+
+# Load required packages for modelling
+```{r}
+#Package installs -------------------------------------------------------------
+load.fun <- function(x) { 
+  x <- as.character(x) 
+  if(isTRUE(x %in% .packages(all.available=TRUE))) { 
+    eval(parse(text=paste("require(", x, ")", sep=""))) 
+    print(paste(c(x, " : already installed; requiring"), collapse=''))
+  } else { 
+    #update.packages()
+    print(paste(c(x, " : not installed; installing"), collapse=''))
+    eval(parse(text=paste("install.packages('", x, "')", sep=""))) 
+    print(paste(c(x, " : installed and requiring"), collapse=''))
+    eval(parse(text=paste("require(", x, ")", sep=""))) 
+  } 
+} 
+
+########### Required Packages ###########
+packages = c("bayesplot", "lme4","RcppEigen",
+             "tidyverse", "tidyr", "AmesHousing", "broom", "caret", "dials", "doParallel", "e1071", "earth",
+             "ggrepel", "glmnet", "ipred", "klaR", "kknn", "pROC", "rpart", "randomForest",
+             "sessioninfo", "tidymodels","ranger", "recipes", "workflows", "themis","xgboost",
+             "sf", "nngeo", "mapview")
+
+for(i in seq_along(packages)){
+  packge <- as.character(packages[i])
+  load.fun(packge)
+}
+
+session_info()
+```
+
+```{r}
+source("1_Package_Setup.R")
+
+# Making a nearest neighbor feature
+set.seed(717)
+theme_set(theme_bw())
+
+"%!in%" <- Negate("%in%")
+g <- glimpse
+
+nn_function <- function(measureFrom,measureTo,k) {
+  library(FNN)
+  nn <-   
+    FNN::get.knnx(measureTo, measureFrom, k)$nn.dist
+  output <-
+    as.data.frame(nn) %>%
+    rownames_to_column(var = "thisPoint") %>%
+    gather(points, point_distance, V1:ncol(.)) %>%
+    arrange(as.numeric(thisPoint)) %>%
+    group_by(thisPoint) %>%
+    summarize(pointDistance = mean(point_distance)) %>%
+    arrange(as.numeric(thisPoint)) %>% 
+    dplyr::select(-thisPoint) %>%
+    pull()
+  
+  return(output)  
+}
+```
+
+# Split into test and training data
+
+```{r}
+### Initial Split for Training and Test
+data_split <- initial_split(ames, strata = "Sale_Price", prop = 0.75)
+ames_train <- training(data_split)
+ames_test  <- testing(data_split)
+
+
+### Cross Validation
+## LOGOCV on Neighborhood with group_vfold_cv()
+cv_splits_geo <- group_vfold_cv(ames_train,  
+                                group = "Neighborhood")
+print(cv_splits_geo)
+```
+
+```{r}
+properties_model <- combinedfinal
+set.seed(3456)
+trainIndex <- createDataPartition(properties_model$exemption, p = .50,
+                                  list = FALSE,
+                                  times = 1)
+churnTrain <- properties_model[ trainIndex,]
+churnTest  <- properties_model[-trainIndex,]
+```
+
+# TIDY MODELS VERSION
+```{r}
+## Model specifications
+lm_plan <- 
+  linear_reg() %>% 
+  set_engine("lm")
+
+glmnet_plan <- 
+  linear_reg() %>% 
+  set_args(penalty  = tune()) %>%
+  set_args(mixture  = tune()) %>%
+  set_engine("glmnet")
+
+rf_plan <- rand_forest() %>%
+  set_args(mtry  = tune()) %>%
+  set_args(min_n = tune()) %>%
+  set_args(trees = 1000) %>% 
+  set_engine("ranger", importance = "impurity") %>% 
+  set_mode("regression")
+
+XGB_plan <- boost_tree() %>%
+  set_args(mtry  = tune()) %>%
+  set_args(min_n = tune()) %>%
+  set_args(trees = 100) %>% 
+  set_engine("xgboost") %>% 
+  set_mode("regression")
+
+
+# Hyperparameter grid for glmnet (penalization)
+glmnet_grid <- expand.grid(penalty = seq(0, 1, by = .25), 
+                           mixture = seq(0,1,0.25))
+rf_grid <- expand.grid(mtry = c(2,5), 
+                       min_n = c(1,5))
+xgb_grid <- expand.grid(mtry = c(3,5), 
+                        min_n = c(1,5))
+
+
+# create workflow
+lm_wf <-
+  workflow() %>% 
+  add_recipe(model_rec) %>% 
+  add_model(lm_plan)
+glmnet_wf <-
+  workflow() %>% 
+  add_recipe(model_rec) %>% 
+  add_model(glmnet_plan)
+rf_wf <-
+  workflow() %>% 
+  add_recipe(model_rec) %>% 
+  add_model(rf_plan)
+xgb_wf <-
+  workflow() %>% 
+  add_recipe(model_rec) %>% 
+  add_model(XGB_plan)
+
+
+# fit model to workflow and calculate metrics
+control <- control_resamples(save_pred = TRUE, verbose = TRUE)
+metrics <- metric_set(rmse, rsq, mape, smape)
+lm_tuned <- lm_wf %>%
+  tune::fit_resamples(.,
+                      resamples = cv_splits_geo,
+                      control   = control,
+                      metrics   = metrics)
+
+glmnet_tuned <- glmnet_wf %>%
+  tune::tune_grid(.,
+                  resamples = cv_splits_geo,
+                  grid      = glmnet_grid,
+                  control   = control,
+                  metrics   = metrics)
+
+rf_tuned <- rf_wf %>%
+  tune::tune_grid(.,
+                  resamples = cv_splits_geo,
+                  grid      = rf_grid,
+                  control   = control,
+                  metrics   = metrics)
+
+xgb_tuned <- xgb_wf %>%
+  tune::tune_grid(.,
+                  resamples = cv_splits_geo,
+                  grid      = xgb_grid,
+                  control   = control,
+                  metrics   = metrics)
+```
+
+# NON TIDY MODELS VERSION
+
+# Regression
+```{r}
+
+```
+
+
+# Random Forest
+```{r}
+library(randomForest)
+
+# Convert categorical variables to factors
+churnTrain$zip_code <- as.factor(churnTrain$zip_code)
+
+# Fit a Random Forest model
+rf_model <- randomForest(exemption ~ total_area + same_address + likely_loop + 
+                         is_deep + avg_balance + com_potential_final + 
+                         transaction_count + avg_growth_rate + value_sd + 
+                         zip_code, 
+                         data = churnTrain, 
+                         ntree = 500,   # Number of trees
+                         mtry = 3,      # Number of variables per split
+                         importance = TRUE)
+
+# Print model summary
+print(rf_model)
+
+# Variable importance
+importance(rf_model)
+varImpPlot(rf_model)
+
+# Make predictions
+churnTrain$rf_pred <- predict(rf_model, churnTrain, type = "response")
+
+```
+
+# XGBoost
+```{r}
+library(xgboost)
+library(caret)
+
+# Convert zip_code to a numeric factor (XGBoost doesn't handle factors directly)
+churnTrain$zip_code <- as.integer(as.factor(churnTrain$zip_code))
+
+# Prepare the training data
+X <- as.matrix(churnTrain[, c("total_area", "same_address", "likely_loop", "is_deep",
+                              "avg_balance", "com_potential_final", "transaction_count",
+                              "avg_growth_rate", "value_sd", "zip_code")])
+y <- churnTrain$exemption
+
+# Create DMatrix for XGBoost
+dtrain <- xgb.DMatrix(data = X, label = y)
+
+# Train XGBoost model
+xgb_model <- xgboost(data = dtrain, 
+                     objective = "binary:logistic",  # Binary classification
+                     nrounds = 200,                 # Number of boosting rounds
+                     max_depth = 6,                 # Tree depth
+                     eta = 0.1,                     # Learning rate
+                     eval_metric = "logloss",       # Log loss for binary classification
+                     verbose = 1)
+
+# Feature importance
+importance <- xgb.importance(feature_names = colnames(X), model = xgb_model)
+xgb.plot.importance(importance)
+
+# Predictions
+churnTrain$xgb_pred <- predict(xgb_model, X)
+
+```
+
+# Neural Networks
+```{r}
+library(nnet)
+
+# Convert zip_code to a factor
+churnTrain$zip_code <- as.factor(churnTrain$zip_code)
+
+# Fit a Neural Network
+nn_model <- nnet(exemption ~ total_area + same_address + likely_loop + is_deep +
+                 avg_balance + com_potential_final + transaction_count +
+                 avg_growth_rate + value_sd + zip_code,
+                 data = churnTrain,
+                 size = 10,  # Number of hidden neurons
+                 maxit = 500, # Maximum iterations
+                 decay = 0.01) # Regularization parameter
+
+# Predictions
+churnTrain$nn_pred <- predict(nn_model, churnTrain, type = "raw")
+
+```
+
+
+# Model Performance Evaluation
+Matt's:
+```{r}
+## metrics across grid
+autoplot(xgb_tuned)
+collect_metrics(xgb_tuned)
+
+## 'Best' by some metric and margin
+show_best(lm_tuned, metric = "rsq", n = 15)
+show_best(glmnet_tuned, metric = "rsq", n = 15)
+show_best(rf_tuned, metric = "rsq", n = 15)
+show_best(xgb_tuned, metric = "rsq", n = 15)
+
+lm_best_params     <- select_best(lm_tuned, metric = "rmse"    )
+glmnet_best_params <- select_best(glmnet_tuned, metric = "rmse")
+rf_best_params     <- select_best(rf_tuned, metric = "rmse"    )
+xgb_best_params    <- select_best(xgb_tuned, metric = "rmse"   )
+
+## Final workflow
+lm_best_wf     <- finalize_workflow(lm_wf, lm_best_params)
+glmnet_best_wf <- finalize_workflow(glmnet_wf, glmnet_best_params)
+rf_best_wf     <- finalize_workflow(rf_wf, rf_best_params)
+xgb_best_wf    <- finalize_workflow(xgb_wf, xgb_best_params)
+
+
+# last_fit() emulates the process where, after determining the best model, the final fit on the entire training set is needed and is then evaluated on the test set.
+lm_val_fit_geo <- lm_best_wf %>% 
+  last_fit(split     = data_split,
+           control   = control,
+           metrics   = metrics)
+
+glmnet_val_fit_geo <- glmnet_best_wf %>% 
+  last_fit(split     = data_split,
+           control   = control,
+           metrics   = metrics)
+
+rf_val_fit_geo <- rf_best_wf %>% 
+  last_fit(split     = data_split,
+           control   = control,
+           metrics   = metrics)
+
+xgb_val_fit_geo <- xgb_best_wf %>% 
+  last_fit(split     = data_split,
+           control   = control,
+           metrics   = metrics)
+```
+
+```{r}
+# Pull best hyperparam preds from out-of-fold predictions
+lm_best_OOF_preds <- collect_predictions(lm_tuned) 
+
+glmnet_best_OOF_preds <- collect_predictions(glmnet_tuned) %>% 
+  filter(penalty  == glmnet_best_params$penalty[1] & mixture == glmnet_best_params$mixture[1])
+
+rf_best_OOF_preds <- collect_predictions(rf_tuned) %>% 
+  filter(mtry  == rf_best_params$mtry[1] & min_n == rf_best_params$min_n[1])
+
+xgb_best_OOF_preds <- collect_predictions(xgb_tuned) %>% 
+  filter(mtry  == xgb_best_params$mtry[1] & min_n == xgb_best_params$min_n[1])
+
+# collect validation set predictions from last_fit model
+lm_val_pred_geo     <- collect_predictions(lm_val_fit_geo)
+glmnet_val_pred_geo <- collect_predictions(glmnet_val_fit_geo)
+rf_val_pred_geo     <- collect_predictions(rf_val_fit_geo)
+xgb_val_pred_geo    <- collect_predictions(xgb_val_fit_geo)
+
+
+# Aggregate OOF predictions (they do not overlap with Validation prediction set)
+OOF_preds <- rbind(data.frame(dplyr::select(lm_best_OOF_preds, .pred, Sale_Price), model = "lm"),
+                   data.frame(dplyr::select(glmnet_best_OOF_preds, .pred, Sale_Price), model = "glmnet"),
+                   data.frame(dplyr::select(rf_best_OOF_preds, .pred, Sale_Price), model = "rf"),
+                   data.frame(dplyr::select(xgb_best_OOF_preds, .pred, Sale_Price), model = "xgb")) %>% 
+  group_by(model) %>% 
+  mutate(Sale_Price = log(Sale_Price),
+         RMSE = yardstick::rmse_vec(Sale_Price, .pred),
+         MAE  = yardstick::mae_vec(Sale_Price, .pred),
+         MAPE = yardstick::mape_vec(Sale_Price, .pred)) %>% 
+  ungroup() %>% 
+  mutate(model = factor(model, levels=c("lm","glmnet","rf","xgb")))
+
+# average error for each model
+ggplot(data = OOF_preds %>% 
+         dplyr::select(model, MAPE) %>% 
+         distinct() , 
+       aes(x = model, y = MAPE, group = 1)) +
+  geom_path(color = "red") +
+  geom_label(aes(label = paste0(round(MAPE,1),"%"))) +
+  theme_bw()
+
+# OOF predicted versus actual
+ggplot(OOF_preds, aes(x = Sale_Price, y = .pred, group = model)) +
+  geom_point(alpha = 0.3) +
+  geom_abline(linetype = "dashed", color = "red") +
+  geom_smooth(method = "lm", color = "blue") +
+  coord_equal() +
+  facet_wrap(~model, nrow = 2) +
+  theme_bw()
+
+
+# Aggregate predictions from Validation set
+val_preds <- rbind(data.frame(lm_val_pred_geo, model = "lm"),
+                   data.frame(glmnet_val_pred_geo, model = "glmnet"),
+                   data.frame(rf_val_pred_geo, model = "rf"),
+                   data.frame(xgb_val_pred_geo, model = "xgb")) %>% 
+  left_join(., ames %>% 
+              rowid_to_column(var = ".row") %>% 
+              dplyr::select(Latitude, Longitude, Neighborhood, .row), 
+            by = ".row") %>% 
+  group_by(model) %>%
+  mutate(Sale_Price = log(Sale_Price),
+         RMSE = yardstick::rmse_vec(Sale_Price, .pred),
+         MAE  = yardstick::mae_vec(Sale_Price, .pred),
+         MAPE = yardstick::mape_vec(Sale_Price, .pred)) %>% 
+  ungroup() %>% 
+  mutate(model = factor(model, levels=c("lm","glmnet","rf","xgb")))
+
+# plot MAPE by model type
+ggplot(data = val_preds %>% 
+         dplyr::select(model, MAPE) %>% 
+         distinct() , 
+       aes(x = model, y = MAPE, group = 1)) +
+  geom_path(color = "red") +
+  geom_label(aes(label = paste0(round(MAPE,1),"%"))) +
+  theme_bw()
+
+# Validation Predicted vs. actual
+ggplot(val_preds, aes(x = Sale_Price, y = .pred, group = model)) +
+  geom_point(alpha = 0.3) +
+  geom_abline(linetype = "dashed", color = "red") +
+  geom_smooth(method = "lm", color = "blue") +
+  coord_equal() +
+  facet_wrap(~model, nrow = 2) +
+  theme_bw()
+
+# join test data back to make spatial
+val_pred_sf <- val_preds %>% 
+  group_by(model) %>% 
+  rowwise() %>% 
+  mutate(RMSE = yardstick::rmse_vec(Sale_Price, .pred),
+         MAE  = yardstick::mae_vec(Sale_Price, .pred),
+         MAPE = yardstick::mape_vec(Sale_Price, .pred)) %>% 
+  st_as_sf(., coords = c("Longitude", "Latitude"),
+           remove = FALSE,
+           crs = 4326)
+
+# map errors by point
+mapview(filter(val_pred_sf, model == "rf"), zcol = "MAPE")
+
+# aggregate val error to Neighborhood 
+val_MAPE_by_hood <- val_preds %>% 
+  group_by(Neighborhood, model) %>% 
+  summarise(RMSE = yardstick::rmse_vec(Sale_Price, .pred),
+         MAE  = yardstick::mae_vec(Sale_Price, .pred),
+         MAPE = yardstick::mape_vec(Sale_Price, .pred)) %>% 
+  ungroup() 
+
+# plot MAPE by Hood
+ggplot(val_MAPE_by_hood, aes(x = reorder(Neighborhood, MAPE), y = MAPE)) +
+  geom_bar(stat = "identity") +
+  scale_y_continuous(breaks = seq(0,10,1)) +
+  theme_bw() +
+  theme(
+    axis.text.x = element_text(angle = -45, hjust = 0)
+  )
+
+## Fit and Extract final model
+## Final fit on all data
+full_fit_lm     <- lm_best_wf %>% fit(ames)
+full_fit_glmnet <- glmnet_best_wf %>% fit(ames)
+full_fit_rf     <- rf_best_wf %>% fit(ames)
+full_fit_xgb    <- xgb_best_wf %>% fit(ames)
+
+# predict with tidymodles on 'workflow'
+predict(full_fit_rf, new_data = ames_train[1:10,]) %>% 
+  mutate(.pred_original = exp(.pred))
+
+
+# extract final fit model object as native package type
+lm_full_mod     <- full_fit_lm  $fit$fit$fit
+glmnet_full_mod <- full_fit_glmnet$fit$fit$fit
+rf_full_mod     <- full_fit_rf  $fit$fit$fit
+xgb_full_mod    <- full_fit_xgb $fit$fit$fit
+
+# predict with native model type
+# but have to 'bake' data first to do transformations
+some_new_data = model_rec %>% prep() %>%  bake(new_data = ames[1:10,])
+# rf model uses 'data', not 'new_data' argument
+# other models with differ as well. Probably best to let tidymodels deal with it
+rf_pred = predict(rf_full_mod, data = some_new_data)
+exp(rf_pred$predictions)
+```
+
+
+
+```{r}
+pR2(churnreg1)[4]
+
+ggplot(testProbs, aes(x = Probs, fill = as.factor(Outcome))) + 
+  geom_density() +
+  facet_grid(Outcome ~ .) +
+  scale_fill_discrete() + xlim(0, 1) +
+  labs(x = "Homestead Exemption", y = "Density of probabilities",
+       title = "Distribution of predicted probabilities by observed outcome") +
+  plotTheme() + theme(strip.text.x = element_text(size = 18),
+                      legend.position = "none")
+
+testProbs <- 
+  testProbs %>%
+  mutate(predOutcome  = as.factor(ifelse(testProbs$Probs > 0.5 , 1, 0)))
+
+head(testProbs)
+
+caret::confusionMatrix(testProbs$predOutcome, testProbs$Outcome, 
+                       positive = "1")
+
+#looking at predicted to have exemption but did not have exemption, which is false negative
+ggplot(testProbs, aes(d = as.numeric(testProbs$Outcome), m = Probs)) +
+  geom_roc(n.cuts = 50, labels = FALSE, colour = "#FE9900") +
+  style_roc(theme = theme_grey) +
+  geom_abline(slope = 1, intercept = 0, size = 1.5, color = 'grey') +
+  labs(title = "ROC Curve - churnModel")
+```
+
+## Across census tracts
+```{r}
+# Retrieve census data to differentiate census tract neighborhoods by racial and income contexts
+census_across_groups <- 
+  get_acs(geography = "tract", 
+          variables = c("B01003_001E","B02001_002E","B19013_001E"), 
+          year=2022, state="AZ", county = "Maricopa County", geometry=TRUE, output = "wide") %>%
+  st_transform('ESRI:102249')  %>%
+  rename(TotalPop = B01003_001E,
+         Whites = B02001_002E,
+         MedHHInc = B19013_001E) %>%
+  mutate(percentWhite = Whites / TotalPop,
+         raceContext = ifelse(percentWhite > 0.5, "Majority White", "Majority Non-White"),
+         incomeContext = ifelse(MedHHInc > mean(MedHHInc, na.rm = TRUE), "High Income", "Low Income"))
+
+# Present mean error by neighborhood racial context
+reg.summary %>% 
+  filter(str_detect(Regression, "LOGO")) %>%
+    st_centroid() %>%
+    st_join(census_across_groups) %>%
+    na.omit() %>%
+      st_drop_geometry() %>%
+      group_by(Regression, raceContext) %>%
+      summarize(mean.Error = mean(Error, na.rm = T)) %>%
+      spread(raceContext, mean.Error) %>%
+      kable(caption = "Mean Error by neighborhood racial context") %>%
+      kable_styling("striped", full_width = F) %>%
+      footnote(
+      general = "Table 2", 
+      general_title = "",
+      footnote_as_chunk = TRUE, 
+      threeparttable = TRUE
+      )
+
+# Present mean error by neighborhood income context
+reg.summary %>% 
+  filter(str_detect(Regression, "LOGO")) %>%
+    st_centroid() %>%
+    st_join(census_across_groups) %>%
+    na.omit() %>%
+      st_drop_geometry() %>%
+      group_by(Regression, incomeContext) %>%
+      summarize(mean.Error = mean(Error, na.rm = T)) %>%
+      spread(incomeContext, mean.Error) %>%
+      kable(caption = "Mean Error by neighborhood income context") %>%
+      kable_styling("striped", full_width = F) %>%
+      footnote(
+      general = "Table 3", 
+      general_title = "",
+      footnote_as_chunk = TRUE, 
+      threeparttable = TRUE
+      )
+```
+

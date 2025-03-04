@@ -133,6 +133,7 @@ Every observation in the Property and Assessment History dataset is one property
 
 #### Creation of dependent variable
 There is a column 'homestead_exemption' within this dataset which indicates the taxable portion amount removed from the property assessment of the house. It should be noted that there are 14 properties that had a homestead exemption larger then $100,000, the maximum possible amount, which is suspected to be a clerical error and has been flagged to the PhillyStat360 team. The dependent variable for the model is derived from this feature by creating a binary variable on whether or not the property is currently enrolled in the homestead exemption program, indicated by a non-zero value. There are 246,853 properties with a homestead exemption.
+
 ```{r}
 properties <- fread("Data/opa_properties_public.csv")
 filtered_properties <- properties %>%
@@ -198,6 +199,8 @@ census_tracts_enriched <- census_tracts %>%
   left_join(tract_summary, by = "GEOID")
 ```
 
+
+<<<<<<< HEAD
 #### General exploration of variables
 One major issue faces is the large number of NA values. Even for those features with a low number of NA values indicated in this table, further investigation reveals that there are many empty cells 
 ```{r}
@@ -205,10 +208,9 @@ One major issue faces is the large number of NA values. Even for those features 
 print(residential_properties %>%
   summarise(across(everything(), ~sum(is.na(.)))) %>%
   tidyr::pivot_longer(cols = everything(), names_to = "Column", values_to = "NA_Count"), n = 100)
-
-sum(residential_properties$basements == "")
 ```
 
+=======
 ```{r}
 # Transform data to WGS84 (required for leaflet)
 census_tracts_wgs84 <- st_transform(census_tracts_enriched, 4326)
@@ -302,6 +304,7 @@ leaflet() %>%
 
 ```
 
+
 ```{r}
 # Create histogram of homestead exemption distribution
 census_hist <- ggplot(census_tracts_enriched %>% 
@@ -363,6 +366,7 @@ homestead_pattern <- ggplot(census_tracts_enriched) +
     legend.text = element_text(size = 14)
   )
 ```
+
 
 ```{r}
 homestead_pattern
@@ -588,11 +592,11 @@ low_enrollment_tracts_map
 
 ```{r}
 ggplot(census_tracts_enriched %>% 
-       filter(pop_density >= 2000), # Using your established density threshold
+       filter(pop_density >= 2000),
        aes(x = owner_occ_rate)) +
   geom_histogram(
     binwidth = 5,
-    fill = "#e42524",  # Using your established red color
+    fill = "#e42524",
     alpha = 0.8,
     color = "white"
   ) +
