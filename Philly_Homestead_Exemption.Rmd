@@ -152,7 +152,8 @@ print(num_blank_zoning)
 residential_properties <- filtered_properties %>% filter(is_residential == 1)
 
 ```
-#### transform to geodata
+
+#### Transform to geodata
 
 ```{r}
 properties_sf <- st_as_sf(residential_properties, wkt = "shape", crs = 2272)
@@ -180,6 +181,18 @@ tract_summary <- properties_tract %>%
 # Create final enriched dataset
 census_tracts_enriched <- census_tracts %>%
   left_join(tract_summary, by = "GEOID")
+```
+
+
+#### General exploration of variables
+One major issue faces is the large number of NA values. Even for those features with a low number of NA values indicated in this table, further investigation reveals that there are many empty cells 
+```{r}
+#Number of NA values
+print(residential_properties %>%
+  summarise(across(everything(), ~sum(is.na(.)))) %>%
+  tidyr::pivot_longer(cols = everything(), names_to = "Column", values_to = "NA_Count"), n = 100)
+
+sum(residential_properties$basements == "")
 ```
 
 #### Predictor Variables 1 & 2: Eligibility Characteristics
@@ -214,10 +227,9 @@ ggplot(residential_properties %>% filter(!is.na(potential_otherprog)),
 
 
 #### Predictor Variables 3 & 4: Property Characteristics
-Depth of the property as well as mean total property area 
+Depth of the property as well as the total property area were also predictors, although not as useful as the eligibility criteria. 
 ```{r}
 residential_properties <- residential_properties %>% mutate(is_deep = ifelse(depth > 150, 1, 0)) 
-
 ggplot(residential_properties %>% 
          filter(!is.na(is_deep)), 
        aes(x = factor(is_deep), fill = factor(exemption))) +
@@ -232,9 +244,26 @@ ggplot(residential_properties %>%
         panel.grid.minor = element_blank(),
         legend.position = "bottom",
         plot.title = element_text(vjust = 0.5))
+residential_properties %>%
+  count(is_deep, exemption) %>%
+  tidyr::spread(key = exemption, value = n, fill = 0)  
+residential_properties %>%
+  count(same_address, exemption) %>%
+  tidyr::spread(key = exemption, value = n, fill = 0)  
+
+
+residential_properties <- residential_properties %>% mutate(large_area = ifelse(total_area > 150000, 1, 0))
+residential_properties %>%
+  count(large_area, exemption) %>%
+  tidyr::spread(key = exemption, value = n, fill = 0)  
+
+
 ```
+
+
+
 =======
-#### Predictor Variables 5 & 6: Petentail Commercial Activity
+#### Predictor Variables 5 & 6: Potentail Commercial Activity
 
 ```{r}
 business_license<-st_read("Data/business_licenses.geojson")
@@ -329,8 +358,6 @@ ggplot(properties_commercial, aes(x = factor(commercial_license), fill = factor(
 ```
 
 #### Predictor Variables 7 & 8: Tax Balance
-
-
 ```{r}
 balances <- read.csv("Data/real_estate_tax_balances_census_tract.csv")
 ```
@@ -449,6 +476,7 @@ ggplot(avg_values, aes(x = variable, y = mean_value, fill = as.factor(exemption)
   
   scale_fill_manual(values = c("#e42524", "#00ADA9"), labels = c("No Exemption", "With Exemption")) +
   scale_color_manual(values = c("#e42524", "#00ADA9"), guide = "none") 
+
 ```
 
 # Modeling
