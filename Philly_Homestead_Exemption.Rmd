@@ -615,8 +615,10 @@ ggplot(census_tracts_enriched %>%
 
 ```
 
+### Predictor Variables
 
 #### Predictor Variables 1 & 2: Eligibility Characteristics
+
 The first predictor variable is based off the key eligibility criteria of the Homestead Exemption program -- whether a homeowner resides long-term in the property itself. The closest proxy of this is whether the mailing street ('mailing_street') address is the same as the property street address ('location'), as the mailing address of the owner is often where the owner lives long-term.
 
 The second predictor variable is based off the ineligibility for the homestead exemption if the homeowner is already enrolled in particular exisitng tax programs such as the LOOP and the residential tax abatement. This is determined if there is an existing tax relief that exempts a portion of the building from tax. If there is a non-zero value for 'exempt-building' and the property is not currently enrolled in the homestead exemption, it is potentially already enrolled in LOOP or in residential tax abatement.
@@ -806,9 +808,8 @@ balances <- read.csv("Data/real_estate_tax_balances_census_tract.csv")
 balance_sf <- census_tracts_enriched %>% 
   left_join(balances %>% select(census_tract,balance,num_props), 
             by = c("GEOID" = "census_tract")) 
-```
 
-```{r}
+
 ggplot(balance_sf) +
   geom_sf(aes(fill = balance), color = "white", size = 0.1) + 
   scale_fill_gradientn(colors = c("#00ADA9","#e3f9f7","#f4aa9e", "#e42524"),
@@ -929,9 +930,9 @@ residential_properties <- residential_properties %>%
 ```
 
 
-#### Predictor Variables 9 & 10: Assessment History
+#### Predictor Variables 9 & 10: Residential Property Metrics
 
-This sector contains 4 variables: 
+This sector contains these variables: 
 - Avg. Market Value and Avg. Taxable Value  Continuous (Numerical)
 - Sd. Market Value and Sd. Taxable Value  Continuous (Numerical)
 
@@ -941,8 +942,6 @@ Homestead Exemption helps stabilize values by reducing taxable assessments.
 Our key findings include: 
 - Exempted properties have lower market values and taxable values compared to non-exempt ones.
 - Standard deviation of market value is lower for exempted properties, suggesting more stable valuations.
-- Exemptions are more common in lower-value, owner-occupied homes, which tend to have less price volatility.
-- Higher-value homes may be more influenced by market forces, leading to greater fluctuations.
 
 ```{r}
 # Load and inspect the assessments dataset
@@ -961,8 +960,6 @@ assessment_combined <- assessments2 %>%
 
 head(assessment_combined)
 ```
-
-##### Residential Property History Analysis
 
 ```{r}
 # Filter Residential Data
@@ -1079,6 +1076,26 @@ summary_residential_long <- residential_summary_analysis %>%
 ```
 
 ```{r}
+# Plot residential property metrics by exemption status
+library(ggplot2)
+custom_colors <- c("0" = "#E42524",  
+                   "1" = "#00ADA9")  
+
+ggplot(summary_residential_long, aes(x = metric, y = value, fill = as.factor(exemption))) +
+  geom_bar(stat = "identity", position = "dodge") +
+  scale_fill_manual(values = custom_colors, labels = c("No Exemption", "With Exemption")) +
+  labs(title = "Residential Property Metrics by Homestead Exemption Status (2015-2025)",
+       x = "Metric", 
+       y = "Value", 
+       fill = "Exemption Status") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+```
+
+- Exemptions are more common in lower-value, owner-occupied homes, which tend to have less price volatility.
+- Higher-value homes may be more influenced by market forces, leading to greater fluctuations.
+
+```{r}
 #Plot Only "avg_market_value" and "sd_market_value"
 
 summary_filtered <- summary_residential_long %>%
@@ -1109,7 +1126,95 @@ ggplot(summary_filtered, aes(x = metric, y = value, fill = as.factor(exemption),
 
 ```
 
-#### Predictor Variables 11 & 12 & 13: Transfers Data
+
+#### Predictor Variables 11 & 12 & 13 : Yearly Trends in Residential Data
+
+Predictive Data to Use:
+- Taxable Land & Taxable Building Value   Continuous (Numerical)
+- Yearly Growth Rate(Taxable Land & Taxable Building)  Continuous (Numerical)
+- If there is sudden changes (growth rate above avg.) Binomial (0 = No sudden change, 1 = Sudden change)
+
+Key Findings:
+- Exempt land values remain consistently low, while non-exempt land values increase more significantly over time.
+- Taxable building values show a large gap between exempt and non-exempt properties, with non-exempt properties rising much more.
+
+Possible Reason:
+Exempted properties are less subject to market-driven tax hikes, while non-exempt ones see faster appreciation and tax increases.
+
+```{r}
+yearly_residential_data <- assessments2 %>%
+  inner_join(cleaned_properties, by = "parcel_number") %>%
+  filter(is_residential == 1)  # Keep only residential properties
+```
+
+
+```{r}
+# Summarize yearly residential data by exemption status
+yearly_residential_summary <- yearly_residential_data %>%
+  group_by(year, exemption) %>%
+  summarise(
+    market_value = mean(market_value, na.rm = TRUE),
+    taxable_land = mean(taxable_land, na.rm = TRUE),
+    taxable_building = mean(taxable_building, na.rm = TRUE),
+    exempt_land = mean(exempt_land, na.rm = TRUE),
+    exempt_building = mean(exempt_building, na.rm = TRUE),
+    .groups = "drop"
+  )
+
+```
+
+```{r}
+# Plot yearly changes in residential metrics
+library(ggplot2)
+library(tidyr)
+
+# Convert the data to long format for better visualization
+yearly_residential_long <- yearly_residential_summary %>%
+  pivot_longer(
+    cols = c(market_value, taxable_land, taxable_building, exempt_land, exempt_building),
+    names_to = "metric",
+    values_to = "value"
+  )
+
+# Filter data for years 2015 and later
+yearly_residential_long_filtered <- yearly_residential_long %>%
+  filter(year >= 2015)
+
+custom_colors <- c("0" = "#E42524",  # Red (No Exemption)
+                   "1" = "#00ADA9")  # Green (With Exemption)
+
+# Generate individual plots for each metric
+plots <- yearly_residential_long_filtered %>%
+  split(.$metric) %>%
+  lapply(function(df) {
+    ggplot(df, aes(x = year, y = value, color = as.factor(exemption))) +
+      geom_line(size = 1.2) +
+      geom_point(size = 2) +
+      scale_x_continuous(breaks = seq(2015, max(df$year), by = 1)) +
+      scale_color_manual(values = custom_colors, labels = c("No Exemption", "With Exemption")) +
+      labs(title = paste("Yearly Change in", unique(df$metric)),
+           x = "Year", 
+           y = "Value", 
+           color = "Exemption Status") +
+      theme_minimal() +
+      theme(axis.text.x = element_text(angle = 45, hjust = 1))
+  })
+
+
+for (p in plots) {
+  print(p)
+}
+```
+
+
+#### Predictor Variables 11 & 12 & 13: Property Transfer Types and Exemption Correlation
+
+Key Findings:
+- Certain deed types (e.g., Deed - Deceased, Satisfaction of Mortgage, Land Bank Deed) have a higher exemption rate.
+Possible Reason:
+- These transactions indicate long-term ownership, inheritance, or financial restructuring, which may qualify properties for exemption.
+Predictive Data to Use:
+- Property deed type Categorical (Nominal)
 
 ```{r}
 transfers2 <- read.csv("Data/RTT_SUMMARY.csv")
@@ -1145,6 +1250,16 @@ document_exemption_model <- glm(exemption ~ document_type, data = residential_tr
 
 summary(document_exemption_model)
 ```
+
+#### Predictor Variables 11 & 12 & 13: Minimal Financial Consideration Transfers
+
+Key Findings:
+- A significant proportion (39.7%) of exempt properties involved minimal financial consideration transfers (≤ $10).
+Possible Reason:
+- These transfers often occur in family transactions, estate planning, or financial hardship cases, aligning with exemption criteria.
+Predictive Data to Use:
+- Total transaction value Continuous (Numerical)
+- if the properties have minimal financial consideration transfers  Binomial (0 = No, 1 = Yes)
 
 ```{r}
 # Minimal Financial Consideration Analysis
