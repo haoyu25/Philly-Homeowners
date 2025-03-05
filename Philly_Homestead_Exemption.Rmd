@@ -200,7 +200,6 @@ census_tracts_enriched <- census_tracts %>%
 ```
 
 
-<<<<<<< HEAD
 #### General exploration of variables
 One major issue faces is the large number of NA values. Even for those features with a low number of NA values indicated in this table, further investigation reveals that there are many empty cells 
 ```{r}
@@ -210,7 +209,6 @@ print(residential_properties %>%
   tidyr::pivot_longer(cols = everything(), names_to = "Column", values_to = "NA_Count"), n = 100)
 ```
 
-=======
 ```{r}
 # Transform data to WGS84 (required for leaflet)
 census_tracts_wgs84 <- st_transform(census_tracts_enriched, 4326)
@@ -618,7 +616,6 @@ ggplot(census_tracts_enriched %>%
 ```
 
 
->>>>>>> b635ef4206821150d9c505741f6d01e200b70662
 #### Predictor Variables 1 & 2: Eligibility Characteristics
 The first predictor variable is based off the key eligibility criteria of the Homestead Exemption program -- whether a homeowner resides long-term in the property itself. The closest proxy of this is whether the mailing street ('mailing_street') address is the same as the property street address ('location'), as the mailing address of the owner is often where the owner lives long-term.
 
@@ -676,15 +673,9 @@ residential_properties %>%
 ```
 
 
-
-<<<<<<< HEAD
-=======
 #### Predictor Variables 5 & 6: Potentail Commercial Activity
-=======
-#### Predictor Variables 5 & 6: Potential Uses Characteristics
 
 These two predictor variables are based on the key eligibility criteria of the Homestead Exemption program, that a property must not be used exclusively for business or rental purposes (partial use is allowed). We divided this criterion into two sections: one assessing the potential for exclusive business use and the other for exclusive rental use. A property is considered to have rental potential if it holds an active rental license, and business potential if it has an active business license (excluding rental licenses). Both variables are binary (has/does not have).
->>>>>>> b635ef4206821150d9c505741f6d01e200b70662
 
 ```{r}
 business_license<-st_read("Data/business_licenses.geojson")
@@ -726,6 +717,16 @@ ggplot(properties_rental, aes(x = factor(rental_license), fill = factor(exemptio
   theme_minimal() +
   theme(legend.position = "none") 
 ```
+
+```{r}
+#join to dataset
+residential_properties <- residential_properties %>%
+  left_join(properties_rental%>%
+              st_drop_geometry()%>%
+              select(objectid,rental_license), 
+            by = c("objectid" = "objectid"))
+```
+
 
 #### Business License (Exclude Rental)
 
@@ -780,15 +781,23 @@ ggplot(properties_commercial, aes(x = factor(commercial_license), fill = factor(
   theme(legend.position = "none") 
 ```
 
+
+```{r}
+#join to dataset
+residential_properties <- residential_properties %>%
+  left_join(properties_commercial%>%
+              st_drop_geometry()%>%
+              select(objectid,commercial_license), 
+            by = c("objectid" = "objectid"))
+```
+
+
 #### Predictor Variables 7 & 8: Tax Balance
-<<<<<<< HEAD
-=======
 
 Tax balance represents the total tax billing in a census tract, including principal, penalties, and interest from previous years. While not explicitly stated in the eligibility criteria for the Homestead Exemption, it may affect homeowners' trust and willingness to apply, influencing the possibility of approval. Additionally, the total tax balance in a census tract can serve as an indicator of broader socioeconomic characteristics, such as income levels, educational attainment, and English proficiency, all of which may impact outreach efforts for the Homestead Exemption program.
 
 In our model, we include two tax balance-related predictor variables: (1) the total tax balance of the census tract where a property is located, and (2) the percentage of properties that owe tax balances of the census tract where a property is located.
 
->>>>>>> b635ef4206821150d9c505741f6d01e200b70662
 ```{r}
 balances <- read.csv("Data/real_estate_tax_balances_census_tract.csv")
 ```
@@ -840,8 +849,8 @@ balance_distinct <- balances %>%
   mutate(census = as.numeric(substr(census_tract, 6, 9)))%>%
   st_drop_geometry()%>%
   group_by(census) %>% 
-  summarise(avg_balance=sum(balance,na.rm=TRUE)/sum(num_props, na.rm = TRUE),
-            sum_balance=sum(balance,na.rm=TRUE),
+  summarise(balance_avg=sum(balance,na.rm=TRUE)/sum(num_props, na.rm = TRUE),
+            balance_total=sum(balance,na.rm=TRUE),
             tax_props=sum(num_props,na.rm=TRUE)) %>%
   ungroup()
 ```
@@ -865,10 +874,10 @@ properties_sf_number<-properties_sf%>%
 properties_balance <- properties_sf_number %>%
   select(objectid, census_tract,exemption,parcel_number,total_props)%>%
   left_join(balance_distinct, by = c("census_tract" = "census"))%>%
-  mutate(avg_balance = replace(avg_balance, is.na(avg_balance), 0),
-         sum_balance = replace(sum_balance, is.na(sum_balance), 0),
+  mutate(balance_avg = replace(balance_avg, is.na(balance_avg), 0),
+         balance_total = replace(balance_total, is.na(balance_total), 0),
          tax_props=replace(tax_props,is.na(tax_props),0))%>%
-  mutate(tax_rate=tax_props/total_props)
+  mutate(balance_rate=tax_props/total_props)
   
 ```
 
@@ -877,9 +886,9 @@ avg_values <- properties_balance %>%
   st_drop_geometry()%>%
   group_by(exemption) %>%
   summarise(
-    'Total Tax Balance (In 100,000)' = mean(sum_balance, na.rm = TRUE)/100000,
+    'Total Tax Balance (In 100,000)' = mean(balance_total, na.rm = TRUE)/100000,
     #Tax_Props=mean(tax_props,na.rm=TRUE),
-    '% of Properties with Tax Balance'=mean(tax_rate,na.rm=TRUE)*100
+    '% of Properties with Tax Balance'=mean(balance_rate,na.rm=TRUE)*100
   ) %>%
   pivot_longer(cols = -exemption, names_to = "variable", values_to = "mean_value")
 
@@ -910,9 +919,31 @@ ggplot(avg_values, aes(x = variable, y = mean_value, fill = as.factor(exemption)
 
 ```
 
+```{r}
+#join to dataset
+residential_properties <- residential_properties %>%
+  left_join(properties_balance%>%
+              st_drop_geometry()%>%
+              select(objectid,balance_total,balance_rate), 
+            by = c("objectid" = "objectid"))
+```
+
+
 #### Predictor Variables 9 & 10: Assessment History
 
-Past Average Market Value & Market Value Volatility
+This sector contains 4 variables: 
+- Avg. Market Value and Avg. Taxable Value  Continuous (Numerical)
+- Sd. Market Value and Sd. Taxable Value  Continuous (Numerical)
+
+Properties with lower values are more likely to belong to homeowners who qualify for tax relief.
+Homestead Exemption helps stabilize values by reducing taxable assessments.
+
+Our key findings include: 
+- Exempted properties have lower market values and taxable values compared to non-exempt ones.
+- Standard deviation of market value is lower for exempted properties, suggesting more stable valuations.
+- Exemptions are more common in lower-value, owner-occupied homes, which tend to have less price volatility.
+- Higher-value homes may be more influenced by market forces, leading to greater fluctuations.
+
 ```{r}
 # Load and inspect the assessments dataset
 assessments2 <- read.csv("Data/assessments.csv")
@@ -1134,12 +1165,6 @@ exemption_summary <- minimal_financial_transfers %>%
   )
 
 print(exemption_summary)
-```
-
-```{r}
-document_exemption_model <- glm(exemption ~ document_type, data = residential_transfers, family = binomial)
-
-summary(document_exemption_model)
 ```
 
 ```{r}
