@@ -1046,6 +1046,15 @@ residential_summary <- residential_summary %>%
   )
 
 head(residential_summary)
+colnames(residential_summary)
+```
+
+```{r}
+#join to dataset
+residential_properties <- residential_properties %>%
+  left_join(residential_summary %>%
+              select(parcel_number,avg_market_value,sd_market_value), 
+            by = c("parcel_number" = "parcel_number"))
 ```
 
 ```{r}
@@ -1076,7 +1085,6 @@ summary_residential_long <- residential_summary_analysis %>%
 
 ```{r}
 # Plot residential property metrics by exemption status
-library(ggplot2)
 custom_colors <- c("0" = "#E42524",  
                    "1" = "#00ADA9")  
 
@@ -1096,7 +1104,7 @@ ggplot(summary_residential_long, aes(x = metric, y = value, fill = as.factor(exe
 
 ```{r}
 #Plot Only "avg_market_value" and "sd_market_value"
-
+colnames(summary_residential_long)
 summary_filtered <- summary_residential_long %>%
   filter(metric %in% c("avg_market_value", "sd_market_value"))
 
@@ -1164,9 +1172,6 @@ yearly_residential_summary <- yearly_residential_data %>%
 
 ```{r}
 # Plot yearly changes in residential metrics
-library(ggplot2)
-library(tidyr)
-
 # Convert the data to long format for better visualization
 yearly_residential_long <- yearly_residential_summary %>%
   pivot_longer(
@@ -1178,9 +1183,6 @@ yearly_residential_long <- yearly_residential_summary %>%
 # Filter data for years 2015 and later
 yearly_residential_long_filtered <- yearly_residential_long %>%
   filter(year >= 2015)
-
-custom_colors <- c("0" = "#E42524",  # Red (No Exemption)
-                   "1" = "#00ADA9")  # Green (With Exemption)
 
 # Generate individual plots for each metric
 plots <- yearly_residential_long_filtered %>%
@@ -1270,7 +1272,6 @@ minimal_financial_transfers <- residential_transfers %>%
 ```
 
 ```{r}
-
 exemption_summary <- minimal_financial_transfers %>%
   group_by(exemption) %>%
   summarise(
@@ -1283,8 +1284,6 @@ print(exemption_summary)
 
 ```{r}
 #Recent(2y) Transfer Analysis
-library(dplyr)
-library(lubridate)
 
 # Convert recording_date to Date format
 residential_transfers <- residential_transfers %>%
@@ -1588,6 +1587,31 @@ ggsave("outputs/homestead-exemption-zoning_summary_chart.png", zoning_summary_ch
 ```
 
 # Modeling
+```{r}
+colnames(residential_properties)
+# dependent variable:
+# predictor variables (filtered to residential only):
+
+#1-4
+#same_address
+#potential_otherprog
+#is_deep
+#large_area
+
+#5-8
+#rental_license
+#commercial_license
+#balance_total
+#document_type
+
+#9-10
+#avg_market_value
+#sd_market_value
+#
+
+
+
+```
 
 
 
