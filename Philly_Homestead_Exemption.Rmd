@@ -201,7 +201,7 @@ census_tracts_enriched <- census_tracts %>%
 
 
 #### General exploration of variables
-One major issue faces is the large number of NA values. Even for those features with a low number of NA values indicated in this table, further investigation reveals that there are many empty cells 
+One major issue faces is the large number of NA values. Even for those features with a low number of NA values indicated in this table, further investigation reveals that there are many empty cells. 
 ```{r}
 #Number of NA values
 print(residential_properties %>%
@@ -239,8 +239,8 @@ leaflet(census_tracts_wgs84) %>%
     title = "% Homestead Exemption",
     opacity = 0.7
   )
-
 ```
+
 ```{r}
 census_tracts_filtered <- census_tracts_enriched %>%
   filter(pop_density > 0 & total_properties >= 30)  # 30 properties minimum
@@ -298,8 +298,6 @@ leaflet() %>%
     labels = "No Data Available",
     opacity = 0.5
   )
-
-
 ```
 
 
@@ -682,6 +680,7 @@ These two predictor variables are based on the key eligibility criteria of the H
 ```{r}
 business_license<-st_read("Data/business_licenses.geojson")
 ```
+
 ##### Rental License
 ```{r}
 rental_license<-business_license%>%
