@@ -1,13 +1,7 @@
 # Combining all datasets 
 ```{r}
-combined <- left_join(residential_properties, properties_comlicences_taxbalance, by = "objectid")
 
-history_transfers <- read.csv("history_transfers_2.0.csv") %>% select(1, 11:20) %>% rename(avg_growth_rate = avg_growth_rate.x)
-combinedfinal <- left_join(combined, history_transfers, by = "parcel_number")
-
-churnTrain$zip_code <- as.integer(as.factor(churnTrain$zip_code))
 ```
-
 
 # Load required packages for modelling
 ```{r}
