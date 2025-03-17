@@ -1,6 +1,6 @@
 # Combining all datasets 
 ```{r}
-
+properties_model
 ```
 
 # Load required packages for modelling
@@ -68,20 +68,20 @@ nn_function <- function(measureFrom,measureTo,k) {
 
 ```{r}
 ### Initial Split for Training and Test
-data_split <- initial_split(ames, strata = "Sale_Price", prop = 0.75)
-ames_train <- training(data_split)
-ames_test  <- testing(data_split)
+data_split <- initial_split(properties_model, strata = "zip_code", prop = 0.75)
+properties_train <- training(data_split)
+properties_test  <- testing(data_split)
 
 
 ### Cross Validation
 ## LOGOCV on Neighborhood with group_vfold_cv()
-cv_splits_geo <- group_vfold_cv(ames_train,  
+cv_splits_geo <- group_vfold_cv(properties_train,  
                                 group = "Neighborhood")
 print(cv_splits_geo)
 ```
 
 ```{r}
-properties_model <- combinedfinal
+#non-matt
 set.seed(3456)
 trainIndex <- createDataPartition(properties_model$exemption, p = .50,
                                   list = FALSE,
@@ -444,7 +444,7 @@ full_fit_rf     <- rf_best_wf %>% fit(ames)
 full_fit_xgb    <- xgb_best_wf %>% fit(ames)
 
 # predict with tidymodles on 'workflow'
-predict(full_fit_rf, new_data = ames_train[1:10,]) %>% 
+predict(full_fit_rf, new_data = properties_train[1:10,]) %>% 
   mutate(.pred_original = exp(.pred))
 
 
