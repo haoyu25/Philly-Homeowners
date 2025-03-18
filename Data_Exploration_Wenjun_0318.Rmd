@@ -454,7 +454,11 @@ residential_transfers_cleaned <- residential_transfers_cleaned %>%
 head(residential_transfers_cleaned)
 ```
 
-On average, 20.07% of properties without a homestead exemption had a transfer in the past two years, compared to 16.17% of those with an exemption. This indicates that properties without exemptions tend to have a slightly higher likelihood of recent transactions.
+```{r}
+write.csv(residential_transfers_cleaned, "residential_transfers_cleaned.csv", row.names = FALSE)
+
+```
+
 
 
 ```{r}
