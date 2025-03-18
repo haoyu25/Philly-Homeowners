@@ -75,7 +75,7 @@ properties_model <- sample_n(properties_model, 1000)
 
 ## NN feature creation
 properties_sf <- properties_model %>% 
-  st_as_sf(., coords = c("Longitude", "Latitude"),
+  st_as_sf(., coords = c("lon_4326", "lat_4326"),
            remove = FALSE,
            crs = 4326) 
 
@@ -571,4 +571,54 @@ reg.summary %>%
       threeparttable = TRUE
       )
 ```
+
+
+
+
+
+
+#TEST
+```{r}
+trainIndex <- createDataPartition(properties_model$exemption, p = .50,
+                                  list = FALSE,
+                                  times = 1)
+churnTrain <- properties_model[ trainIndex,]
+churnTest  <- properties_model[-trainIndex,]
+
+churnreg1 <- glm(exemption ~ .,
+                 data=churnTrain %>% 
+                   dplyr::select(sale_price, market_value, total_area, zip_code, geographic_ward, exemption),
+                 family="binomial" (link="logit"))
+testProbs <- data.frame(Outcome = as.factor(churnTest$exemption),
+                        Probs = predict(churnreg1, churnTest, type= "response"))
+summary(churnreg1)
+pR2(churnreg1)[4]
+
+ggplot(testProbs, aes(x = Probs, fill = as.factor(Outcome))) + 
+  geom_density() +
+  facet_grid(Outcome ~ .) +
+  scale_fill_discrete() + xlim(0, 1) +
+  labs(x = "Homestead Exemption", y = "Density of probabilities",
+       title = "Distribution of predicted probabilities by observed outcome") +
+  plotTheme() + theme(strip.text.x = element_text(size = 18),
+                      legend.position = "none")
+
+testProbs <- 
+  testProbs %>%
+  mutate(predOutcome  = as.factor(ifelse(testProbs$Probs > 0.5 , 1, 0)))
+
+head(testProbs)
+
+caret::confusionMatrix(testProbs$predOutcome, testProbs$Outcome, 
+                       positive = "1")
+
+#looking at predicted to have exemption but did not have exemption, which is false negative
+ggplot(testProbs, aes(d = as.numeric(testProbs$Outcome), m = Probs)) +
+  geom_roc(n.cuts = 50, labels = FALSE, colour = "#FE9900") +
+  style_roc(theme = theme_grey) +
+  geom_abline(slope = 1, intercept = 0, size = 1.5, color = 'grey') +
+  labs(title = "ROC Curve - churnModel")
+
+```
+
 

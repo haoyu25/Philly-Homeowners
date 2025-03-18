@@ -474,7 +474,7 @@ ggplot(census_tracts_enriched) +
 # Table for low rates
 low_enrollment_tracts <- census_tracts_enriched %>%
   filter(pop_density > 0 & pct_homestead < 30) %>%
-  select(GEOID, pct_homestead, pop_density) %>%
+  dplyr::select(GEOID, pct_homestead, pop_density) %>%
   arrange(pct_homestead)
 
 low_enrollment_tracts %>%
@@ -506,7 +506,7 @@ ggplot(census_tracts_enriched) +
 # Table for high rates
 low_enrollment_tracts <- census_tracts_enriched %>%
   filter(pop_density > 0 & pct_homestead < 30) %>%
-  select(GEOID, pct_homestead, pop_density) %>%
+  dplyr::select(GEOID, pct_homestead, pop_density) %>%
   arrange(pct_homestead)
 
 low_enrollment_tracts %>%
@@ -572,7 +572,7 @@ low_enrollment_tracts <- census_tracts_enriched %>%
          total_properties >= 100 & 
          pct_homestead < 30 &
          owner_occ_rate > 40) %>%
-  select(GEOID, pct_homestead, pop_density, total_properties) %>%
+  dplyr::select(GEOID, pct_homestead, pop_density, total_properties) %>%
   arrange(pct_homestead)
 
 # For the map visualization
@@ -700,7 +700,7 @@ rental_license<-business_license%>%
   filter(licensetype=="Rental",
          #rentalcategory=="Residential Dwellings",
          licensestatus %in% c("Active"))%>%
-  select(opa_account_num)%>%
+  dplyr::select(opa_account_num)%>%
   st_drop_geometry()%>%
   distinct() %>% 
   filter(!is.na(opa_account_num)) %>% 
@@ -737,7 +737,7 @@ ggplot(properties_rental, aes(x = factor(rental_license), fill = factor(exemptio
 residential_properties <- residential_properties %>%
   left_join(properties_rental%>%
               st_drop_geometry()%>%
-              select(objectid,rental_license), 
+              dplyr::select(objectid,rental_license), 
             by = c("objectid" = "objectid"))
 ```
 
@@ -763,7 +763,7 @@ commercial_license<-business_license%>%
     "Tow Company",
     "Vacant Commercial Property"
   ))%>%
-  select(opa_account_num)%>%
+  dplyr::select(opa_account_num)%>%
   st_drop_geometry()%>%
   distinct() %>% 
   filter(!is.na(opa_account_num)) %>% 
@@ -801,7 +801,7 @@ ggplot(properties_commercial, aes(x = factor(commercial_license), fill = factor(
 residential_properties <- residential_properties %>%
   left_join(properties_commercial%>%
               st_drop_geometry()%>%
-              select(objectid,commercial_license), 
+              dplyr::select(objectid,commercial_license), 
             by = c("objectid" = "objectid"))
 ```
 
@@ -818,7 +818,7 @@ balances <- read.csv("Data/real_estate_tax_balances_census_tract.csv")
 
 ```{r}
 balance_sf <- census_tracts_enriched %>% 
-  left_join(balances %>% select(census_tract,balance,num_props), 
+  left_join(balances %>% dplyr::select(census_tract,balance,num_props), 
             by = c("GEOID" = "census_tract")) 
 
 
@@ -870,7 +870,7 @@ balance_distinct <- balances %>%
 
 ```{r}
 properties_number<-properties_sf%>%
-  select(census_tract,exemption,parcel_number)%>%
+  dplyr::select(census_tract,exemption,parcel_number)%>%
   mutate(prop=1)%>%
   st_drop_geometry()%>%
   group_by(census_tract)%>%
@@ -885,7 +885,7 @@ properties_sf_number<-properties_sf%>%
 
 ```{r}
 properties_balance <- properties_sf_number %>%
-  select(objectid, census_tract,exemption,parcel_number,total_props)%>%
+  dplyr::select(objectid, census_tract,exemption,parcel_number,total_props)%>%
   left_join(balance_distinct, by = c("census_tract" = "census"))%>%
   mutate(balance_avg = replace(balance_avg, is.na(balance_avg), 0),
          balance_total = replace(balance_total, is.na(balance_total), 0),
@@ -937,7 +937,7 @@ ggplot(avg_values, aes(x = variable, y = mean_value, fill = as.factor(exemption)
 residential_properties <- residential_properties %>%
   left_join(properties_balance%>%
               st_drop_geometry()%>%
-              select(objectid,balance_total,balance_rate), 
+              dplyr::select(objectid,balance_total,balance_rate), 
             by = c("objectid" = "objectid"))
 ```
 
@@ -966,7 +966,7 @@ head(assessments2, 10)
 
 # Merge properties and assessments data by parcel_number
 cleaned_properties <- filtered_properties %>%
-  select(parcel_number, exemption, is_residential, shape)
+  dplyr::select(parcel_number, exemption, is_residential, shape)
 assessment_combined <- assessments2 %>%
   left_join(cleaned_properties, by = "parcel_number")
 
@@ -1053,7 +1053,7 @@ residential_summary <- residential_assessment_combined %>%
 residential_summary <- residential_summary %>%
   left_join(
     residential_assessment_combined %>%
-      select(parcel_number, exemption, is_residential, shape) %>%
+      dplyr::select(parcel_number, exemption, is_residential, shape) %>%
       distinct(parcel_number, .keep_all = TRUE),  # Keep one row per parcel_number
     by = "parcel_number"
   )
@@ -1066,7 +1066,7 @@ colnames(residential_summary)
 #join to dataset
 residential_properties <- residential_properties %>%
   left_join(residential_summary %>%
-              select(parcel_number,avg_market_value,sd_market_value), 
+              dplyr::select(parcel_number,avg_market_value,sd_market_value), 
             by = c("parcel_number" = "parcel_number"))
 ```
 
@@ -1252,7 +1252,7 @@ colnames(residential_transfers)
 residential_properties <- residential_properties %>%
   left_join(
     residential_transfers %>%
-      select(objectid.x, document_type),
+      dplyr::select(objectid.x, document_type),
     by = c("objectid" = "objectid.x")
   )
 ```
@@ -1314,7 +1314,7 @@ colnames(minimal_financial_transfers_tocombine)
 residential_properties <- residential_properties %>%
   left_join(
     minimal_financial_transfers_tocombine %>%
-      select(objectid.x, min_fin_consid),
+      dplyr::select(objectid.x, min_fin_consid),
     by = c("objectid" = "objectid.x")
   )
 ```
@@ -1370,7 +1370,7 @@ colnames(residential_transfers_2y)
 residential_properties <- residential_properties %>%
   left_join(
     residential_transfers_2y %>%
-      select(parcel_number, has_recent_transfer),
+      dplyr::select(parcel_number, has_recent_transfer),
     by = c("parcel_number" = "parcel_number")
   )
 ```
@@ -1490,7 +1490,7 @@ occupancy_analysis <- census_tracts_enriched %>%
     owner_occ_rate = (owner_hh / occupied_units) * 100,
     pct_homestead_owners = (homestead_count / owner_hh) * 100
   ) %>%
-  select(GEOID, owner_occ_rate, pct_homestead_owners)
+  dplyr::select(GEOID, owner_occ_rate, pct_homestead_owners)
 
 # Visualize the relationship
 ggplot(occupancy_analysis, aes(x = owner_occ_rate, y = pct_homestead_owners)) +
@@ -1525,7 +1525,7 @@ occupancy_analysis <- census_tracts_enriched %>%
     owner_occ_rate = (owner_hh / occupied_units) * 100,
     pct_homestead_owners = (homestead_count / owner_hh) * 100
   ) %>%
-  select(GEOID, owner_occ_rate, pct_homestead_owners)
+  dplyr::select(GEOID, owner_occ_rate, pct_homestead_owners)
 
 occupancy_analysis <- occupancy_analysis %>%
   filter(!is.na(pct_homestead_owners) & !is.nan(pct_homestead_owners) & !is.infinite(pct_homestead_owners))
@@ -1592,7 +1592,7 @@ kable(zoning_types,
 
 ```{r}
 properties_filtered <- filtered_properties %>%
-  select(
+  dplyr::select(
     zoning,
     homestead_exemption,
     is_residential,
@@ -1704,7 +1704,7 @@ colnames(residential_properties)
 ```
 
 ```{r}
-properties_model <- residential_properties %>% select(objectid, census_tract, geographic_ward, zip_code, 
+properties_model <- residential_properties %>% dplyr::select(objectid, census_tract, geographic_ward, zip_code, 
                                                       x_2272, y_2272, lon_4326, lat_4326, geom, exemption,
                                                       same_address, potential_otherprog, is_deep, large_area,
                                                       rental_license, commercial_license, 
@@ -1715,6 +1715,7 @@ properties_model <- residential_properties %>% select(objectid, census_tract, ge
                                                       limited_english_rate, median_income, diversity_index,
                                                       pct_foreign_born)
 
+write.csv(properties_model,"properties_model.csv", row.names = TRUE)
 
 print(residential_properties %>%
   summarise(across(everything(), ~sum(is.na(.)))) %>%
