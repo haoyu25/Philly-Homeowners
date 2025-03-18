@@ -64,7 +64,32 @@ nn_function <- function(measureFrom,measureTo,k) {
 }
 ```
 
-# Split into test and training data
+
+# TIDY MODELS VERSION
+```{r}
+### Set up Ames Housing Data
+properties_model <- properties_model
+  mutate(property_ID = seq(1:n()))
+
+properties_model <- sample_n(properties_model, 1000)
+
+## NN feature creation
+properties_sf <- properties_model %>% 
+  st_as_sf(., coords = c("Longitude", "Latitude"),
+           remove = FALSE,
+           crs = 4326) 
+
+## Make spatial NN feature
+ames_sf <- ames_sf %>% 
+  mutate(FP_NN = nn_function(st_coordinates(st_transform(ames_sf,32619)), 
+                             st_coordinates(filter(st_transform(ames_sf,32619), 
+                                                   Fireplaces >= 2)),3))
+
+
+mapview(ames_sf, zcol = "FP_NN")
+
+ames <- st_drop_geometry(ames_sf)
+```
 
 ```{r}
 ### Initial Split for Training and Test
@@ -76,21 +101,10 @@ properties_test  <- testing(data_split)
 ### Cross Validation
 ## LOGOCV on Neighborhood with group_vfold_cv()
 cv_splits_geo <- group_vfold_cv(properties_train,  
-                                group = "Neighborhood")
+                                group = "geographic_ward")
 print(cv_splits_geo)
 ```
 
-```{r}
-#non-matt
-set.seed(3456)
-trainIndex <- createDataPartition(properties_model$exemption, p = .50,
-                                  list = FALSE,
-                                  times = 1)
-churnTrain <- properties_model[ trainIndex,]
-churnTest  <- properties_model[-trainIndex,]
-```
-
-# TIDY MODELS VERSION
 ```{r}
 ## Model specifications
 lm_plan <- 
@@ -178,6 +192,16 @@ xgb_tuned <- xgb_wf %>%
 ```
 
 # NON TIDY MODELS VERSION
+
+```{r}
+#non-matt
+set.seed(3456)
+trainIndex <- createDataPartition(properties_model$exemption, p = .50,
+                                  list = FALSE,
+                                  times = 1)
+churnTrain <- properties_model[ trainIndex,]
+churnTest  <- properties_model[-trainIndex,]
+```
 
 # Regression
 ```{r}

@@ -169,10 +169,22 @@ residential_properties <- filtered_properties %>% filter(is_residential == 1)
 
 ```
 
-#### Transform to geodata
+#### Transform to geodata in both 2272 and 4326 planes
 
 ```{r}
 properties_sf <- st_as_sf(residential_properties, wkt = "shape", crs = 2272)
+
+residential_properties <- properties_sf %>%
+  mutate(
+    x_2272 = st_coordinates(.)[,1],  # X coordinate in EPSG:2272
+    y_2272 = st_coordinates(.)[,2]   # Y coordinate in EPSG:2272
+  ) %>%
+  st_transform(crs = 4326) %>%
+  mutate(
+    lon_4326 = st_coordinates(.)[,1],  # Longitude in EPSG:4326
+    lat_4326 = st_coordinates(.)[,2]   # Latitude in EPSG:4326
+  ) %>%
+  st_drop_geometry()
 ```
 
 #### Homestead Rate by Census Tract
@@ -1280,6 +1292,8 @@ Predictive Data to Use:
 # Minimal Financial Consideration Analysis
 
 minimal_threshold <- 10 
+
+residential_transfers
 
 minimal_financial_transfers <- residential_transfers %>%
   filter(total_consideration <= minimal_threshold)
