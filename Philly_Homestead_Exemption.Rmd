@@ -1454,26 +1454,6 @@ ggplot(census_tracts_enriched %>%
 
 ```
 
-```{r}
-# joining census tract data to dataset
-
-# Convert census tract to 6-digit format
-residential_properties <- residential_properties %>%
-  mutate(
-    census_tract_fips = paste0("42101", str_pad(as.character(census_tract * 100), 6, pad = "0"))
-  )
-
-residential_properties <- residential_properties %>%
-  left_join(census_tracts_enriched, by = c("census_tract_fips" = "GEOID"))
-
-table(residential_properties$census_tract_fips %in% census_tracts_enriched$GEOID)
-
-census_tracts_enriched$ALAND20
-head(census_tracts_enriched$GEOID)
-head(residential_properties$census_tract_fips)
-table(residential_properties$census_tract)
-```
-
 The scatterplot shows the relationship between median home values (x-axis) and homestead exemption rates (y-axis) across Philadelphia census tracts. The pattern suggests:
 
 Homestead exemption rates increase with home values up to around $250,000. 
@@ -1485,6 +1465,20 @@ There's a slight decline in participation for higher-value homes.
 The widening gray area at higher home values indicates more uncertainty in the trend, likely due to fewer data points in that range.
 
 Wide variation in participation rates across all home values, shown by the vertical spread of points
+
+
+```{r}
+#join to dataset
+# Extract column names for index 81 to 112
+selected_columns <- names(properties_tract)[c(1, 81:112)]
+# Perform the left join
+residential_properties <- residential_properties %>%
+  left_join(
+    properties_tract %>% dplyr::select(all_of(selected_columns)),
+    by = c("objectid" = "objectid")
+  )
+```
+
 
 ##### Owner Occupancy
 
@@ -1710,7 +1704,8 @@ colnames(residential_properties)
 ```
 
 ```{r}
-properties_model <- residential_properties %>% select(objectid, census_tract, geographic_ward, zip_code, geom, exemption,
+properties_model <- residential_properties %>% select(objectid, census_tract, geographic_ward, zip_code, 
+                                                      x_2272, y_2272, lon_4326, lat_4326, geom, exemption,
                                                       same_address, potential_otherprog, is_deep, large_area,
                                                       rental_license, commercial_license, 
                                                       balance_total, balance_rate,
@@ -1720,9 +1715,22 @@ properties_model <- residential_properties %>% select(objectid, census_tract, ge
                                                       limited_english_rate, median_income, diversity_index,
                                                       pct_foreign_born)
 
-print(properties_model %>%
+
+print(residential_properties %>%
   summarise(across(everything(), ~sum(is.na(.)))) %>%
-  tidyr::pivot_longer(cols = everything(), names_to = "Column", values_to = "NA_Count"), n = 100)
+  tidyr::pivot_longer(cols = everything(), names_to = "Column", values_to = "NA_Count"), n = 200)
+
+residential_properties <- properties_sf %>%
+  mutate(
+    x_2272 = st_coordinates(.)[,1],  # X coordinate in EPSG:2272
+    y_2272 = st_coordinates(.)[,2]   # Y coordinate in EPSG:2272
+  ) %>%
+  st_transform(crs = 4326) %>%
+  mutate(
+    lon_4326 = st_coordinates(.)[,1],  # Longitude in EPSG:4326
+    lat_4326 = st_coordinates(.)[,2]   # Latitude in EPSG:4326
+  ) %>%
+  st_drop_geometry()
 ```
 
 SEE MODELLING_DRAFT.RMD
