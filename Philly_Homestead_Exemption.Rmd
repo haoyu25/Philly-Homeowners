@@ -1719,18 +1719,6 @@ properties_model <- residential_properties %>% select(objectid, census_tract, ge
 print(residential_properties %>%
   summarise(across(everything(), ~sum(is.na(.)))) %>%
   tidyr::pivot_longer(cols = everything(), names_to = "Column", values_to = "NA_Count"), n = 200)
-
-residential_properties <- properties_sf %>%
-  mutate(
-    x_2272 = st_coordinates(.)[,1],  # X coordinate in EPSG:2272
-    y_2272 = st_coordinates(.)[,2]   # Y coordinate in EPSG:2272
-  ) %>%
-  st_transform(crs = 4326) %>%
-  mutate(
-    lon_4326 = st_coordinates(.)[,1],  # Longitude in EPSG:4326
-    lat_4326 = st_coordinates(.)[,2]   # Latitude in EPSG:4326
-  ) %>%
-  st_drop_geometry()
 ```
 
 SEE MODELLING_DRAFT.RMD
