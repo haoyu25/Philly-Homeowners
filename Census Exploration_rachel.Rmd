@@ -564,6 +564,41 @@ low_enrollment_tracts %>%
   )
 ```
 
+
+```{r}
+high_enrollment_tracts <- census_tracts_enriched %>%
+  filter(pop_density >= 2000 & 
+         total_properties >= 100 & 
+         pct_homestead < 60 &
+         owner_occ_rate > 40) %>%
+  select(GEOID, pct_homestead, pop_density, total_properties) %>%
+  arrange(pct_homestead)
+
+# For the map visualization
+low_enrollment_tracts_map <- ggplot(census_tracts_enriched) +
+  geom_sf(aes(fill = case_when(
+    pop_density >= 2000 & 
+    total_properties >= 100 & 
+    pct_homestead < 60 &
+    owner_occ_rate > 40 ~ "#f4aa9e",
+    TRUE ~ "gray80"
+  ))) +
+  scale_fill_identity() +
+  labs(
+    title = "Low Homestead Exemption Tracts",
+    subtitle = "Tracts with <60% Homestead Rate & >40% Owner Occupancy",
+    caption = "Gray areas do not meet filtering criteria"
+  ) +
+  map_theme
+
+
+
+
+low_enrollment_tracts_map
+#ggsave("outputs/homestead-exemption-high_enrollment_tracts.png", high_enrollment_tracts_map, width = 10, height = 6)
+```
+
+
 ```{r}
 ggplot(census_tracts_enriched %>% 
        filter(pop_density >= 2000), # Using your established density threshold
