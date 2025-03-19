@@ -1742,9 +1742,14 @@ properties_model <- residential_properties %>% dplyr::select(objectid, census_tr
                                                       balance_total, balance_rate,
                                                       avg_market_value, sd_market_value,
                                                       has_recent_transfer, latest_document_type,
+                                                      pct_foreign_born,
+                                                      overall_vacancy_rate,owner_vacancy_rate,rental_vacancy_rate,
                                                       poverty_rate, bach_degree_rate,
+                                                      young_owner_rate,middle_owner_rate,senior_owner_rate,family_hh_rate,
                                                       limited_english_rate, median_income, diversity_index,
-                                                      pct_foreign_born)
+                                                      median_home_value,median_multiple,
+                                                      cost_burden_rate,mortgage_burden_rate,diversity_index,gentrification_risk
+                                                      )
 
 write.csv(properties_model,"properties_model.csv", row.names = TRUE)
 
