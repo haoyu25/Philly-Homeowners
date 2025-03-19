@@ -719,6 +719,20 @@ residential_properties <- residential_properties %>%
       TRUE ~ "None"
     )
   )
+
+# Count the number of properties by tax_bdg_status and exemption
+count_by_category <- residential_properties %>%
+  group_by(tax_bdg_status, exemption) %>%
+  summarise(count = n())
+
+print(count_by_category)
+
+count_by_category_otherprog <- residential_properties %>%
+  group_by(likely_other_prog, exemption) %>%
+  summarise(count = n())
+
+print(count_by_category_otherprog)
+
 ```
 
 
@@ -1282,17 +1296,6 @@ residential_transfers <- residential_transfers %>%
 
 colnames(residential_transfers)
 ```
-
-```{r}
-#join to dataset
-residential_properties <- residential_properties %>%
-  left_join(
-    residential_transfers %>%
-      dplyr::select(objectid.x, document_type),
-    by = c("objectid" = "objectid.x")
-  )
-```
-
 
 ```{r}
 exemption_by_document_type <- residential_transfers %>%
