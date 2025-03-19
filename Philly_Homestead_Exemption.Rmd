@@ -647,8 +647,6 @@ ggplot(residential_properties, aes(x = same_address, fill = as.factor(exemption)
           legend.position = "bottom",
          plot.title = element_text(vjust = 0.5))
 
-residential_properties <- residential_properties %>% mutate(potential_otherprog = ifelse(exempt_building > 0 & exemption == 0, 1, 0))
-
 ```
 
 #### Predictor Variables 3 & 4: Property Characteristics
@@ -1348,17 +1346,6 @@ colnames(minimal_financial_transfers_tocombine)
 ```
 
 ```{r}
-#join to dataset
-residential_properties <- residential_properties %>%
-  left_join(
-    minimal_financial_transfers_tocombine %>%
-      dplyr::select(objectid.x, min_fin_consid),
-    by = c("objectid" = "objectid.x")
-  )
-```
-
-
-```{r}
 exemption_summary <- minimal_financial_transfers %>%
   group_by(exemption) %>%
   summarise(
@@ -1405,10 +1392,11 @@ colnames(residential_transfers_2y)
 
 ```{r}
 #join to dataset
+transfers_new <- read.csv("residential_transfers_cleaned.csv") %>% rename(has_recent_transfer = has_recent_transfer.x)
 residential_properties <- residential_properties %>%
   left_join(
-    residential_transfers_2y %>%
-      dplyr::select(parcel_number, has_recent_transfer),
+    transfers_new %>%
+      dplyr::select(parcel_number, has_recent_transfer, latest_document_type),
     by = c("parcel_number" = "parcel_number")
   )
 ```
@@ -1712,7 +1700,8 @@ colnames(residential_properties)
 
 #1-4
 #same_address
-#potential_otherprog
+#likely_otherprog
+#
 #is_deep
 #large_area
 
@@ -1744,11 +1733,12 @@ colnames(residential_properties)
 ```{r}
 properties_model <- residential_properties %>% dplyr::select(objectid, census_tract, geographic_ward, zip_code, 
                                                       x_2272, y_2272, lon_4326, lat_4326, exemption,
-                                                      same_address, potential_otherprog, is_deep, large_area,
+                                                      same_address, perc_bdg_exempt, likely_other_prog, tax_bdg_status,
+                                                      is_deep, large_area,
                                                       rental_license, commercial_license, 
                                                       balance_total, balance_rate,
                                                       avg_market_value, sd_market_value,
-                                                      document_type, min_fin_consid, has_recent_transfer,
+                                                      has_recent_transfer, latest_document_type,
                                                       poverty_rate, bach_degree_rate,
                                                       limited_english_rate, median_income, diversity_index,
                                                       pct_foreign_born)
