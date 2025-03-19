@@ -682,7 +682,45 @@ residential_properties %>%
   count(large_area, exemption) %>%
   tidyr::spread(key = exemption, value = n, fill = 0)  
 
+colnames(residential_properties)
 
+residential_properties <- residential_properties %>%
+  mutate(
+    perc_bdg_exempt = case_when(
+      taxable_building != 0 ~ exempt_building / taxable_building,  # Calculate ratio only when taxable_building > 0
+      taxable_building == 0 ~ 1  # Set to 1 for full exemptions as well (e.g., 10-year abatement)
+    )
+  )
+
+sum(residential_properties$taxable_building == 0, na.rm = TRUE)
+sum(residential_properties$perc_bdg_exempt == 1, na.rm = TRUE)
+
+residential_properties %>%
+  group_by(exemption) %>%
+  summarise(
+    mean_perc_bdg_exempt = mean(perc_bdg_exempt, na.rm = TRUE),
+    median_perc_bdg_exempt = median(perc_bdg_exempt, na.rm = TRUE),
+    count = n()
+  )
+
+residential_properties <- residential_properties %>%
+  mutate(
+    likely_other_prog = case_when(
+      taxable_building == 0 & exempt_building > 0 ~ 1,  # 10-Year Tax Abatement
+      taxable_building > 0 & exempt_building > 100000 ~ 1,  # Likely LOOP (exempt portion is large)
+      TRUE ~ 0
+    )
+  )
+
+residential_properties <- residential_properties %>%
+  mutate(
+    tax_bdg_status = case_when(
+      taxable_building == 0 & exempt_building > 0 ~ "10-Year Abatement",
+      taxable_building > 0 & exempt_building > 100000 ~ "Likely LOOP",
+      exempt_building <= 100000 & exempt_building > 0 ~ "Possible Homestead",
+      TRUE ~ "None"
+    )
+  )
 ```
 
 
@@ -1705,13 +1743,13 @@ colnames(residential_properties)
 
 ```{r}
 properties_model <- residential_properties %>% dplyr::select(objectid, census_tract, geographic_ward, zip_code, 
-                                                      x_2272, y_2272, lon_4326, lat_4326, geom, exemption,
+                                                      x_2272, y_2272, lon_4326, lat_4326, exemption,
                                                       same_address, potential_otherprog, is_deep, large_area,
                                                       rental_license, commercial_license, 
                                                       balance_total, balance_rate,
                                                       avg_market_value, sd_market_value,
                                                       document_type, min_fin_consid, has_recent_transfer,
-                                                      owner_occ_rate, poverty_rate, bach_degree_rate,
+                                                      poverty_rate, bach_degree_rate,
                                                       limited_english_rate, median_income, diversity_index,
                                                       pct_foreign_born)
 

@@ -577,7 +577,7 @@ reg.summary %>%
 
 
 
-#TEST
+#TEST STUFF
 ```{r}
 trainIndex <- createDataPartition(properties_model$exemption, p = .50,
                                   list = FALSE,
@@ -621,4 +621,107 @@ ggplot(testProbs, aes(d = as.numeric(testProbs$Outcome), m = Probs)) +
 
 ```
 
+```{r}
+# Fit a Random Forest model
+library(randomForest)
+library(dplyr)
+library(caret)
+library(ggplot2)
+library(pROC)
+
+# Split data into training (50%) and testing (50%) sets
+set.seed(42)  # Ensure reproducibility
+trainIndex <- createDataPartition(properties_model$exemption, p = 0.50, list = FALSE, times = 1)
+train_data <- properties_model[trainIndex, ]
+test_data <- properties_model[-trainIndex, ]
+
+# Fit logistic regression model
+logit_model <- glm(exemption ~ same_address + potential_otherprog + is_deep + large_area + 
+                     rental_license + commercial_license + balance_total + balance_rate + 
+                     avg_market_value + sd_market_value + document_type +
+                     has_recent_transfer + poverty_rate + bach_degree_rate + 
+                     limited_english_rate + median_income + diversity_index + pct_foreign_born, 
+                   data = train_data, family = binomial(link = "logit"))
+
+# Model Summary
+summary(logit_model)
+
+# McFadden's pseudo R-squared
+library(pscl)
+pR2(logit_model)[4]
+
+# Predict probabilities on the test set
+testProbs <- data.frame(Outcome = as.factor(test_data$exemption),
+                        Probs = predict(logit_model, test_data, type = "response"))
+
+# Plot distribution of predicted probabilities
+ggplot(testProbs, aes(x = Probs, fill = as.factor(Outcome))) + 
+  geom_density(alpha = 0.6) +
+  facet_grid(Outcome ~ .) +
+  scale_fill_discrete() + xlim(0, 1) +
+  labs(x = "Predicted Probability of Exemption", y = "Density",
+       title = "Distribution of Predicted Probabilities by Observed Outcome") +
+  theme_minimal() + 
+  theme(strip.text.x = element_text(size = 14), legend.position = "none")
+
+# Convert probabilities to binary predictions
+testProbs <- testProbs %>%
+  mutate(predOutcome = as.factor(ifelse(Probs > 0.5, 1, 0)))
+
+# Confusion Matrix
+confusionMatrix(testProbs$predOutcome, testProbs$Outcome, positive = "1")
+
+# ROC Curve
+ggplot(testProbs, aes(d = as.numeric(Outcome), m = Probs)) +
+  geom_roc(n.cuts = 50, labels = FALSE, colour = "#FE9900") +
+  style_roc(theme = theme_gray()) +
+  geom_abline(slope = 1, intercept = 0, size = 1.5, color = 'grey') +
+  labs(title = "ROC Curve - Logistic Regression Model")
+
+
+model_data <- properties_model %>%
+  dplyr::select(exemption, same_address, potential_otherprog, is_deep, large_area, 
+                rental_license, commercial_license, balance_total, balance_rate, 
+                avg_market_value, sd_market_value, document_type, 
+                has_recent_transfer, poverty_rate, bach_degree_rate, 
+                limited_english_rate, median_income, diversity_index, pct_foreign_born) %>%
+  na.omit()  # Remove rows with missing values
+
+# Convert categorical variables to factors if necessary
+model_data <- model_data %>%
+  mutate(across(where(is.character), as.factor))  # Convert character columns to factors
+
+# Split data into training (70%) and testing (30%)
+set.seed(42)  # Ensure reproducibility
+train_index <- sample(seq_len(nrow(model_data)), size = 0.7 * nrow(model_data))
+train_data <- model_data[train_index, ]
+test_data <- model_data[-train_index, ]
+
+# Convert exemption to factor for classification
+train_data$exemption <- as.factor(train_data$exemption)
+test_data$exemption <- as.factor(test_data$exemption)
+
+# Train Random Forest Model with a Smaller Dataset to Avoid Memory Issues
+rf_model <- randomForest(
+  exemption ~ ., 
+  data = train_data, 
+  ntree = 10,  # Reduce trees to prevent memory issues
+  mtry = floor(sqrt(ncol(train_data) - 1)),  # Ensures valid variable selection
+  importance = TRUE
+)
+
+# Model Summary
+print(rf_model)
+
+# Evaluate model performance on test data
+predictions <- predict(rf_model, newdata = test_data)
+conf_matrix <- table(test_data$exemption, predictions)
+
+# Print confusion matrix
+print(conf_matrix)
+
+# Feature Importance
+importance(rf_model)
+varImpPlot(rf_model)
+```
 
