@@ -1,0 +1,811 @@
+
+# Load required packages for modelling
+```{r, include=FALSE}
+#Package installs -------------------------------------------------------------
+load.fun <- function(x) { 
+  x <- as.character(x) 
+  if(isTRUE(x %in% .packages(all.available=TRUE))) { 
+    eval(parse(text=paste("require(", x, ")", sep=""))) 
+    print(paste(c(x, " : already installed; requiring"), collapse=''))
+  } else { 
+    #update.packages()
+    print(paste(c(x, " : not installed; installing"), collapse=''))
+    eval(parse(text=paste("install.packages('", x, "')", sep=""))) 
+    print(paste(c(x, " : installed and requiring"), collapse=''))
+    eval(parse(text=paste("require(", x, ")", sep=""))) 
+  } 
+} 
+
+########### Required Packages ###########
+packages = c("bayesplot", "lme4","RcppEigen",
+             "tidyverse", "tidyr", "AmesHousing", "broom", "caret", "dials", "doParallel", "e1071", "earth",
+             "ggrepel", "glmnet", "ipred", "klaR", "kknn", "pROC", "rpart", "randomForest",
+             "sessioninfo", "tidymodels","ranger", "recipes", "workflows", "themis","xgboost",
+             "sf", "nngeo", "mapview","data.table","ggplot2","corrr")
+
+for(i in seq_along(packages)){
+  packge <- as.character(packages[i])
+  load.fun(packge)
+}
+
+session_info()
+# Color palette
+palette2 <- c("#e42524", "#00ADA9")
+palette5 <- c('#BF4146', '#E5A186', '#F1C8BB', '#B3CADB','#6683a9')
+```
+
+# Combining all datasets 
+```{r}
+properties_model<-fread("properties_model.csv")
+
+glimpse(properties_model)
+```
+
+# Feature overview
+
+## Continous Features
+```{r}
+data <-properties_model %>%
+    dplyr::select(exemption, 
+                  perc_bdg_exempt,balance_total,balance_rate,
+                  avg_market_value,sd_market_value,
+                  median_home_value,owner_vacancy_rate,diversity_index,limited_english_rate
+                  #pct_foreign_born,overall_vacancy_rate,rental_vacancy_rate,
+                  #poverty_rate,bach_degree_rate,young_owner_rate,middle_owner_rate,
+                  #senior_owner_rate,family_hh_rate,median_income,
+                  #median_multiple,cost_burden_rate,mortgage_burden_rate,
+                  #gentrification_risk
+                  ) %>%
+    gather(Variable, value, -exemption) %>%
+    ggplot() + 
+    geom_density(aes(value, color=as.factor(exemption)), fill = "transparent") + 
+    facet_wrap(~Variable, scales = "free") +
+    scale_color_manual(values = palette2) +
+    labs(title = "Feature distributions Gentrification vs. no Gentrification",
+         subtitle = "(continous features)")+ theme_minimal()+
+  theme(legend.position = "bottom") 
+
+print(data) 
+
+```
+
+
+## Categorical Features
+```{r}
+plot<-properties_model %>%
+    dplyr::select(exemption, 
+                  same_address,likely_other_prog,tax_bdg_status,is_deep,large_area,
+                  rental_license,commercial_license,has_recent_transfer
+                  ,latest_document_type
+                  )%>%
+    gather(Variable, value, -exemption) %>%
+    count(Variable, value, exemption)%>%
+      ggplot(., aes(value, n, fill = as.factor(exemption))) +   
+        geom_bar(position = "dodge", stat="identity") +
+        facet_wrap(~Variable, scales="free")  +
+        scale_fill_manual(values = palette2) +
+        labs(x="Categories", y="Value",
+             title = "Feature associations with Gentrification",
+             subtitle = "Categorical features") +
+  theme_minimal()+
+  theme(legend.position = "bottom",
+        axis.text.x = element_text(angle = 60, hjust = 1,size=6))+
+  scale_x_discrete(labels = function(x) str_trunc(x, 10)) 
+
+print(plot)
+```
+
+## Correlation Matrix
+
+```{r}
+numericVars <- properties_model %>%
+  select(-V1)%>%
+  #select(-objectid,-census_tract,-geographic_ward,-zip_code,-x_2272,-y_2722,-lon_4326,-lat_4326) %>%  
+  select_if(is.numeric) %>% 
+  na.omit() 
+
+correlation_matrix <- cor(numericVars)
+
+
+numericVars %>% 
+  correlate() %>% 
+  autoplot() +
+  geom_tile(aes(fill = r), color = "#e9e9e9") +
+  geom_text(aes(label = round(r,digits=2)), size = 3) +
+  scale_fill_gradient2(low = "#6683a9", mid = "white", high = "#BF4146",  # Specify color gradient
+                       midpoint = 0, limits = c(-1, 1),
+                       breaks = seq(-1, 1, by = 0.2)) +
+  labs(title = "Correlation across numeric variables")  # Set plot title
+```
+
+
+```{r}
+source("1_Package_Setup.R")
+
+# Making a nearest neighbor feature
+set.seed(717)
+theme_set(theme_bw())
+
+"%!in%" <- Negate("%in%")
+g <- glimpse
+
+nn_function <- function(measureFrom,measureTo,k) {
+  library(FNN)
+  nn <-   
+    FNN::get.knnx(measureTo, measureFrom, k)$nn.dist
+  output <-
+    as.data.frame(nn) %>%
+    rownames_to_column(var = "thisPoint") %>%
+    gather(points, point_distance, V1:ncol(.)) %>%
+    arrange(as.numeric(thisPoint)) %>%
+    group_by(thisPoint) %>%
+    summarize(pointDistance = mean(point_distance)) %>%
+    arrange(as.numeric(thisPoint)) %>% 
+    dplyr::select(-thisPoint) %>%
+    pull()
+  
+  return(output)  
+}
+```
+
+
+# TIDY MODELS VERSION
+```{r}
+### Set up Ames Housing Data
+properties_model <- properties_model
+  mutate(property_ID = seq(1:n()))
+
+properties_model <- sample_n(properties_model, 1000)
+
+## NN feature creation
+properties_sf <- properties_model %>% 
+  st_as_sf(., coords = c("lon_4326", "lat_4326"),
+           remove = FALSE,
+           crs = 4326) 
+
+## Make spatial NN feature
+ames_sf <- ames_sf %>% 
+  mutate(FP_NN = nn_function(st_coordinates(st_transform(ames_sf,32619)), 
+                             st_coordinates(filter(st_transform(ames_sf,32619), 
+                                                   Fireplaces >= 2)),3))
+
+
+mapview(ames_sf, zcol = "FP_NN")
+
+ames <- st_drop_geometry(ames_sf)
+```
+
+```{r}
+### Initial Split for Training and Test
+data_split <- initial_split(properties_model, strata = "zip_code", prop = 0.75)
+properties_train <- training(data_split)
+properties_test  <- testing(data_split)
+
+
+### Cross Validation
+## LOGOCV on Neighborhood with group_vfold_cv()
+cv_splits_geo <- group_vfold_cv(properties_train,  
+                                group = "geographic_ward")
+print(cv_splits_geo)
+```
+
+```{r}
+## Model specifications
+lm_plan <- 
+  linear_reg() %>% 
+  set_engine("lm")
+
+glmnet_plan <- 
+  linear_reg() %>% 
+  set_args(penalty  = tune()) %>%
+  set_args(mixture  = tune()) %>%
+  set_engine("glmnet")
+
+rf_plan <- rand_forest() %>%
+  set_args(mtry  = tune()) %>%
+  set_args(min_n = tune()) %>%
+  set_args(trees = 1000) %>% 
+  set_engine("ranger", importance = "impurity") %>% 
+  set_mode("regression")
+
+XGB_plan <- boost_tree() %>%
+  set_args(mtry  = tune()) %>%
+  set_args(min_n = tune()) %>%
+  set_args(trees = 100) %>% 
+  set_engine("xgboost") %>% 
+  set_mode("regression")
+
+
+# Hyperparameter grid for glmnet (penalization)
+glmnet_grid <- expand.grid(penalty = seq(0, 1, by = .25), 
+                           mixture = seq(0,1,0.25))
+rf_grid <- expand.grid(mtry = c(2,5), 
+                       min_n = c(1,5))
+xgb_grid <- expand.grid(mtry = c(3,5), 
+                        min_n = c(1,5))
+
+
+# create workflow
+lm_wf <-
+  workflow() %>% 
+  add_recipe(model_rec) %>% 
+  add_model(lm_plan)
+glmnet_wf <-
+  workflow() %>% 
+  add_recipe(model_rec) %>% 
+  add_model(glmnet_plan)
+rf_wf <-
+  workflow() %>% 
+  add_recipe(model_rec) %>% 
+  add_model(rf_plan)
+xgb_wf <-
+  workflow() %>% 
+  add_recipe(model_rec) %>% 
+  add_model(XGB_plan)
+
+
+# fit model to workflow and calculate metrics
+control <- control_resamples(save_pred = TRUE, verbose = TRUE)
+metrics <- metric_set(rmse, rsq, mape, smape)
+lm_tuned <- lm_wf %>%
+  tune::fit_resamples(.,
+                      resamples = cv_splits_geo,
+                      control   = control,
+                      metrics   = metrics)
+
+glmnet_tuned <- glmnet_wf %>%
+  tune::tune_grid(.,
+                  resamples = cv_splits_geo,
+                  grid      = glmnet_grid,
+                  control   = control,
+                  metrics   = metrics)
+
+rf_tuned <- rf_wf %>%
+  tune::tune_grid(.,
+                  resamples = cv_splits_geo,
+                  grid      = rf_grid,
+                  control   = control,
+                  metrics   = metrics)
+
+xgb_tuned <- xgb_wf %>%
+  tune::tune_grid(.,
+                  resamples = cv_splits_geo,
+                  grid      = xgb_grid,
+                  control   = control,
+                  metrics   = metrics)
+```
+
+# NON TIDY MODELS VERSION
+
+```{r}
+#non-matt
+set.seed(3456)
+trainIndex <- createDataPartition(properties_model$exemption, p = .50,
+                                  list = FALSE,
+                                  times = 1)
+churnTrain <- properties_model[ trainIndex,]
+churnTest  <- properties_model[-trainIndex,]
+```
+
+# Regression
+```{r}
+
+```
+
+
+# Random Forest
+```{r}
+library(randomForest)
+
+# Convert categorical variables to factors
+churnTrain$zip_code <- as.factor(churnTrain$zip_code)
+
+# Fit a Random Forest model
+rf_model <- randomForest(exemption ~ total_area + same_address + likely_loop + 
+                         is_deep + avg_balance + com_potential_final + 
+                         transaction_count + avg_growth_rate + value_sd + 
+                         zip_code, 
+                         data = churnTrain, 
+                         ntree = 500,   # Number of trees
+                         mtry = 3,      # Number of variables per split
+                         importance = TRUE)
+
+# Print model summary
+print(rf_model)
+
+# Variable importance
+importance(rf_model)
+varImpPlot(rf_model)
+
+# Make predictions
+churnTrain$rf_pred <- predict(rf_model, churnTrain, type = "response")
+
+```
+
+# XGBoost
+```{r}
+library(xgboost)
+library(caret)
+
+# Convert zip_code to a numeric factor (XGBoost doesn't handle factors directly)
+churnTrain$zip_code <- as.integer(as.factor(churnTrain$zip_code))
+
+# Prepare the training data
+X <- as.matrix(churnTrain[, c("total_area", "same_address", "likely_loop", "is_deep",
+                              "avg_balance", "com_potential_final", "transaction_count",
+                              "avg_growth_rate", "value_sd", "zip_code")])
+y <- churnTrain$exemption
+
+# Create DMatrix for XGBoost
+dtrain <- xgb.DMatrix(data = X, label = y)
+
+# Train XGBoost model
+xgb_model <- xgboost(data = dtrain, 
+                     objective = "binary:logistic",  # Binary classification
+                     nrounds = 200,                 # Number of boosting rounds
+                     max_depth = 6,                 # Tree depth
+                     eta = 0.1,                     # Learning rate
+                     eval_metric = "logloss",       # Log loss for binary classification
+                     verbose = 1)
+
+# Feature importance
+importance <- xgb.importance(feature_names = colnames(X), model = xgb_model)
+xgb.plot.importance(importance)
+
+# Predictions
+churnTrain$xgb_pred <- predict(xgb_model, X)
+
+```
+
+# Neural Networks
+```{r}
+library(nnet)
+
+# Convert zip_code to a factor
+churnTrain$zip_code <- as.factor(churnTrain$zip_code)
+
+# Fit a Neural Network
+nn_model <- nnet(exemption ~ total_area + same_address + likely_loop + is_deep +
+                 avg_balance + com_potential_final + transaction_count +
+                 avg_growth_rate + value_sd + zip_code,
+                 data = churnTrain,
+                 size = 10,  # Number of hidden neurons
+                 maxit = 500, # Maximum iterations
+                 decay = 0.01) # Regularization parameter
+
+# Predictions
+churnTrain$nn_pred <- predict(nn_model, churnTrain, type = "raw")
+
+```
+
+
+# Model Performance Evaluation
+Matt's:
+```{r}
+## metrics across grid
+autoplot(xgb_tuned)
+collect_metrics(xgb_tuned)
+
+## 'Best' by some metric and margin
+show_best(lm_tuned, metric = "rsq", n = 15)
+show_best(glmnet_tuned, metric = "rsq", n = 15)
+show_best(rf_tuned, metric = "rsq", n = 15)
+show_best(xgb_tuned, metric = "rsq", n = 15)
+
+lm_best_params     <- select_best(lm_tuned, metric = "rmse"    )
+glmnet_best_params <- select_best(glmnet_tuned, metric = "rmse")
+rf_best_params     <- select_best(rf_tuned, metric = "rmse"    )
+xgb_best_params    <- select_best(xgb_tuned, metric = "rmse"   )
+
+## Final workflow
+lm_best_wf     <- finalize_workflow(lm_wf, lm_best_params)
+glmnet_best_wf <- finalize_workflow(glmnet_wf, glmnet_best_params)
+rf_best_wf     <- finalize_workflow(rf_wf, rf_best_params)
+xgb_best_wf    <- finalize_workflow(xgb_wf, xgb_best_params)
+
+
+# last_fit() emulates the process where, after determining the best model, the final fit on the entire training set is needed and is then evaluated on the test set.
+lm_val_fit_geo <- lm_best_wf %>% 
+  last_fit(split     = data_split,
+           control   = control,
+           metrics   = metrics)
+
+glmnet_val_fit_geo <- glmnet_best_wf %>% 
+  last_fit(split     = data_split,
+           control   = control,
+           metrics   = metrics)
+
+rf_val_fit_geo <- rf_best_wf %>% 
+  last_fit(split     = data_split,
+           control   = control,
+           metrics   = metrics)
+
+xgb_val_fit_geo <- xgb_best_wf %>% 
+  last_fit(split     = data_split,
+           control   = control,
+           metrics   = metrics)
+```
+
+```{r}
+# Pull best hyperparam preds from out-of-fold predictions
+lm_best_OOF_preds <- collect_predictions(lm_tuned) 
+
+glmnet_best_OOF_preds <- collect_predictions(glmnet_tuned) %>% 
+  filter(penalty  == glmnet_best_params$penalty[1] & mixture == glmnet_best_params$mixture[1])
+
+rf_best_OOF_preds <- collect_predictions(rf_tuned) %>% 
+  filter(mtry  == rf_best_params$mtry[1] & min_n == rf_best_params$min_n[1])
+
+xgb_best_OOF_preds <- collect_predictions(xgb_tuned) %>% 
+  filter(mtry  == xgb_best_params$mtry[1] & min_n == xgb_best_params$min_n[1])
+
+# collect validation set predictions from last_fit model
+lm_val_pred_geo     <- collect_predictions(lm_val_fit_geo)
+glmnet_val_pred_geo <- collect_predictions(glmnet_val_fit_geo)
+rf_val_pred_geo     <- collect_predictions(rf_val_fit_geo)
+xgb_val_pred_geo    <- collect_predictions(xgb_val_fit_geo)
+
+
+# Aggregate OOF predictions (they do not overlap with Validation prediction set)
+OOF_preds <- rbind(data.frame(dplyr::select(lm_best_OOF_preds, .pred, Sale_Price), model = "lm"),
+                   data.frame(dplyr::select(glmnet_best_OOF_preds, .pred, Sale_Price), model = "glmnet"),
+                   data.frame(dplyr::select(rf_best_OOF_preds, .pred, Sale_Price), model = "rf"),
+                   data.frame(dplyr::select(xgb_best_OOF_preds, .pred, Sale_Price), model = "xgb")) %>% 
+  group_by(model) %>% 
+  mutate(Sale_Price = log(Sale_Price),
+         RMSE = yardstick::rmse_vec(Sale_Price, .pred),
+         MAE  = yardstick::mae_vec(Sale_Price, .pred),
+         MAPE = yardstick::mape_vec(Sale_Price, .pred)) %>% 
+  ungroup() %>% 
+  mutate(model = factor(model, levels=c("lm","glmnet","rf","xgb")))
+
+# average error for each model
+ggplot(data = OOF_preds %>% 
+         dplyr::select(model, MAPE) %>% 
+         distinct() , 
+       aes(x = model, y = MAPE, group = 1)) +
+  geom_path(color = "red") +
+  geom_label(aes(label = paste0(round(MAPE,1),"%"))) +
+  theme_bw()
+
+# OOF predicted versus actual
+ggplot(OOF_preds, aes(x = Sale_Price, y = .pred, group = model)) +
+  geom_point(alpha = 0.3) +
+  geom_abline(linetype = "dashed", color = "red") +
+  geom_smooth(method = "lm", color = "blue") +
+  coord_equal() +
+  facet_wrap(~model, nrow = 2) +
+  theme_bw()
+
+
+# Aggregate predictions from Validation set
+val_preds <- rbind(data.frame(lm_val_pred_geo, model = "lm"),
+                   data.frame(glmnet_val_pred_geo, model = "glmnet"),
+                   data.frame(rf_val_pred_geo, model = "rf"),
+                   data.frame(xgb_val_pred_geo, model = "xgb")) %>% 
+  left_join(., ames %>% 
+              rowid_to_column(var = ".row") %>% 
+              dplyr::select(Latitude, Longitude, Neighborhood, .row), 
+            by = ".row") %>% 
+  group_by(model) %>%
+  mutate(Sale_Price = log(Sale_Price),
+         RMSE = yardstick::rmse_vec(Sale_Price, .pred),
+         MAE  = yardstick::mae_vec(Sale_Price, .pred),
+         MAPE = yardstick::mape_vec(Sale_Price, .pred)) %>% 
+  ungroup() %>% 
+  mutate(model = factor(model, levels=c("lm","glmnet","rf","xgb")))
+
+# plot MAPE by model type
+ggplot(data = val_preds %>% 
+         dplyr::select(model, MAPE) %>% 
+         distinct() , 
+       aes(x = model, y = MAPE, group = 1)) +
+  geom_path(color = "red") +
+  geom_label(aes(label = paste0(round(MAPE,1),"%"))) +
+  theme_bw()
+
+# Validation Predicted vs. actual
+ggplot(val_preds, aes(x = Sale_Price, y = .pred, group = model)) +
+  geom_point(alpha = 0.3) +
+  geom_abline(linetype = "dashed", color = "red") +
+  geom_smooth(method = "lm", color = "blue") +
+  coord_equal() +
+  facet_wrap(~model, nrow = 2) +
+  theme_bw()
+
+# join test data back to make spatial
+val_pred_sf <- val_preds %>% 
+  group_by(model) %>% 
+  rowwise() %>% 
+  mutate(RMSE = yardstick::rmse_vec(Sale_Price, .pred),
+         MAE  = yardstick::mae_vec(Sale_Price, .pred),
+         MAPE = yardstick::mape_vec(Sale_Price, .pred)) %>% 
+  st_as_sf(., coords = c("Longitude", "Latitude"),
+           remove = FALSE,
+           crs = 4326)
+
+# map errors by point
+mapview(filter(val_pred_sf, model == "rf"), zcol = "MAPE")
+
+# aggregate val error to Neighborhood 
+val_MAPE_by_hood <- val_preds %>% 
+  group_by(Neighborhood, model) %>% 
+  summarise(RMSE = yardstick::rmse_vec(Sale_Price, .pred),
+         MAE  = yardstick::mae_vec(Sale_Price, .pred),
+         MAPE = yardstick::mape_vec(Sale_Price, .pred)) %>% 
+  ungroup() 
+
+# plot MAPE by Hood
+ggplot(val_MAPE_by_hood, aes(x = reorder(Neighborhood, MAPE), y = MAPE)) +
+  geom_bar(stat = "identity") +
+  scale_y_continuous(breaks = seq(0,10,1)) +
+  theme_bw() +
+  theme(
+    axis.text.x = element_text(angle = -45, hjust = 0)
+  )
+
+## Fit and Extract final model
+## Final fit on all data
+full_fit_lm     <- lm_best_wf %>% fit(ames)
+full_fit_glmnet <- glmnet_best_wf %>% fit(ames)
+full_fit_rf     <- rf_best_wf %>% fit(ames)
+full_fit_xgb    <- xgb_best_wf %>% fit(ames)
+
+# predict with tidymodles on 'workflow'
+predict(full_fit_rf, new_data = properties_train[1:10,]) %>% 
+  mutate(.pred_original = exp(.pred))
+
+
+# extract final fit model object as native package type
+lm_full_mod     <- full_fit_lm  $fit$fit$fit
+glmnet_full_mod <- full_fit_glmnet$fit$fit$fit
+rf_full_mod     <- full_fit_rf  $fit$fit$fit
+xgb_full_mod    <- full_fit_xgb $fit$fit$fit
+
+# predict with native model type
+# but have to 'bake' data first to do transformations
+some_new_data = model_rec %>% prep() %>%  bake(new_data = ames[1:10,])
+# rf model uses 'data', not 'new_data' argument
+# other models with differ as well. Probably best to let tidymodels deal with it
+rf_pred = predict(rf_full_mod, data = some_new_data)
+exp(rf_pred$predictions)
+```
+
+
+
+```{r}
+pR2(churnreg1)[4]
+
+ggplot(testProbs, aes(x = Probs, fill = as.factor(Outcome))) + 
+  geom_density() +
+  facet_grid(Outcome ~ .) +
+  scale_fill_discrete() + xlim(0, 1) +
+  labs(x = "Homestead Exemption", y = "Density of probabilities",
+       title = "Distribution of predicted probabilities by observed outcome") +
+  plotTheme() + theme(strip.text.x = element_text(size = 18),
+                      legend.position = "none")
+
+testProbs <- 
+  testProbs %>%
+  mutate(predOutcome  = as.factor(ifelse(testProbs$Probs > 0.5 , 1, 0)))
+
+head(testProbs)
+
+caret::confusionMatrix(testProbs$predOutcome, testProbs$Outcome, 
+                       positive = "1")
+
+#looking at predicted to have exemption but did not have exemption, which is false negative
+ggplot(testProbs, aes(d = as.numeric(testProbs$Outcome), m = Probs)) +
+  geom_roc(n.cuts = 50, labels = FALSE, colour = "#FE9900") +
+  style_roc(theme = theme_grey) +
+  geom_abline(slope = 1, intercept = 0, size = 1.5, color = 'grey') +
+  labs(title = "ROC Curve - churnModel")
+```
+
+## Across census tracts
+```{r}
+# Retrieve census data to differentiate census tract neighborhoods by racial and income contexts
+census_across_groups <- 
+  get_acs(geography = "tract", 
+          variables = c("B01003_001E","B02001_002E","B19013_001E"), 
+          year=2022, state="AZ", county = "Maricopa County", geometry=TRUE, output = "wide") %>%
+  st_transform('ESRI:102249')  %>%
+  rename(TotalPop = B01003_001E,
+         Whites = B02001_002E,
+         MedHHInc = B19013_001E) %>%
+  mutate(percentWhite = Whites / TotalPop,
+         raceContext = ifelse(percentWhite > 0.5, "Majority White", "Majority Non-White"),
+         incomeContext = ifelse(MedHHInc > mean(MedHHInc, na.rm = TRUE), "High Income", "Low Income"))
+
+# Present mean error by neighborhood racial context
+reg.summary %>% 
+  filter(str_detect(Regression, "LOGO")) %>%
+    st_centroid() %>%
+    st_join(census_across_groups) %>%
+    na.omit() %>%
+      st_drop_geometry() %>%
+      group_by(Regression, raceContext) %>%
+      summarize(mean.Error = mean(Error, na.rm = T)) %>%
+      spread(raceContext, mean.Error) %>%
+      kable(caption = "Mean Error by neighborhood racial context") %>%
+      kable_styling("striped", full_width = F) %>%
+      footnote(
+      general = "Table 2", 
+      general_title = "",
+      footnote_as_chunk = TRUE, 
+      threeparttable = TRUE
+      )
+
+# Present mean error by neighborhood income context
+reg.summary %>% 
+  filter(str_detect(Regression, "LOGO")) %>%
+    st_centroid() %>%
+    st_join(census_across_groups) %>%
+    na.omit() %>%
+      st_drop_geometry() %>%
+      group_by(Regression, incomeContext) %>%
+      summarize(mean.Error = mean(Error, na.rm = T)) %>%
+      spread(incomeContext, mean.Error) %>%
+      kable(caption = "Mean Error by neighborhood income context") %>%
+      kable_styling("striped", full_width = F) %>%
+      footnote(
+      general = "Table 3", 
+      general_title = "",
+      footnote_as_chunk = TRUE, 
+      threeparttable = TRUE
+      )
+```
+
+
+
+
+
+
+#TEST STUFF
+```{r}
+trainIndex <- createDataPartition(properties_model$exemption, p = .50,
+                                  list = FALSE,
+                                  times = 1)
+churnTrain <- properties_model[ trainIndex,]
+churnTest  <- properties_model[-trainIndex,]
+
+churnreg1 <- glm(exemption ~ .,
+                 data=churnTrain %>% 
+                   dplyr::select(sale_price, market_value, total_area, zip_code, geographic_ward, exemption),
+                 family="binomial" (link="logit"))
+testProbs <- data.frame(Outcome = as.factor(churnTest$exemption),
+                        Probs = predict(churnreg1, churnTest, type= "response"))
+summary(churnreg1)
+pR2(churnreg1)[4]
+
+ggplot(testProbs, aes(x = Probs, fill = as.factor(Outcome))) + 
+  geom_density() +
+  facet_grid(Outcome ~ .) +
+  scale_fill_discrete() + xlim(0, 1) +
+  labs(x = "Homestead Exemption", y = "Density of probabilities",
+       title = "Distribution of predicted probabilities by observed outcome") +
+  plotTheme() + theme(strip.text.x = element_text(size = 18),
+                      legend.position = "none")
+
+testProbs <- 
+  testProbs %>%
+  mutate(predOutcome  = as.factor(ifelse(testProbs$Probs > 0.5 , 1, 0)))
+
+head(testProbs)
+
+caret::confusionMatrix(testProbs$predOutcome, testProbs$Outcome, 
+                       positive = "1")
+
+#looking at predicted to have exemption but did not have exemption, which is false negative
+ggplot(testProbs, aes(d = as.numeric(testProbs$Outcome), m = Probs)) +
+  geom_roc(n.cuts = 50, labels = FALSE, colour = "#FE9900") +
+  style_roc(theme = theme_grey) +
+  geom_abline(slope = 1, intercept = 0, size = 1.5, color = 'grey') +
+  labs(title = "ROC Curve - churnModel")
+
+```
+
+```{r}
+# Fit a Random Forest model
+library(randomForest)
+library(dplyr)
+library(caret)
+library(ggplot2)
+library(pROC)
+
+# Split data into training (50%) and testing (50%) sets
+set.seed(42)  # Ensure reproducibility
+trainIndex <- createDataPartition(properties_model$exemption, p = 0.50, list = FALSE, times = 1)
+train_data <- properties_model[trainIndex, ]
+test_data <- properties_model[-trainIndex, ]
+
+# Fit logistic regression model
+logit_model <- glm(exemption ~ same_address + potential_otherprog + is_deep + large_area + 
+                     rental_license + commercial_license + balance_total + balance_rate + 
+                     avg_market_value + sd_market_value + document_type +
+                     has_recent_transfer + poverty_rate + bach_degree_rate + 
+                     limited_english_rate + median_income + diversity_index + pct_foreign_born, 
+                   data = train_data, family = binomial(link = "logit"))
+
+# Model Summary
+summary(logit_model)
+
+# McFadden's pseudo R-squared
+library(pscl)
+pR2(logit_model)[4]
+
+# Predict probabilities on the test set
+testProbs <- data.frame(Outcome = as.factor(test_data$exemption),
+                        Probs = predict(logit_model, test_data, type = "response"))
+
+# Plot distribution of predicted probabilities
+ggplot(testProbs, aes(x = Probs, fill = as.factor(Outcome))) + 
+  geom_density(alpha = 0.6) +
+  facet_grid(Outcome ~ .) +
+  scale_fill_discrete() + xlim(0, 1) +
+  labs(x = "Predicted Probability of Exemption", y = "Density",
+       title = "Distribution of Predicted Probabilities by Observed Outcome") +
+  theme_minimal() + 
+  theme(strip.text.x = element_text(size = 14), legend.position = "none")
+
+# Convert probabilities to binary predictions
+testProbs <- testProbs %>%
+  mutate(predOutcome = as.factor(ifelse(Probs > 0.5, 1, 0)))
+
+# Confusion Matrix
+confusionMatrix(testProbs$predOutcome, testProbs$Outcome, positive = "1")
+
+# ROC Curve
+ggplot(testProbs, aes(d = as.numeric(Outcome), m = Probs)) +
+  geom_roc(n.cuts = 50, labels = FALSE, colour = "#FE9900") +
+  style_roc(theme = theme_gray()) +
+  geom_abline(slope = 1, intercept = 0, size = 1.5, color = 'grey') +
+  labs(title = "ROC Curve - Logistic Regression Model")
+
+
+model_data <- properties_model %>%
+  dplyr::select(exemption, same_address, potential_otherprog, is_deep, large_area, 
+                rental_license, commercial_license, balance_total, balance_rate, 
+                avg_market_value, sd_market_value, document_type, 
+                has_recent_transfer, poverty_rate, bach_degree_rate, 
+                limited_english_rate, median_income, diversity_index, pct_foreign_born) %>%
+  na.omit()  # Remove rows with missing values
+
+# Convert categorical variables to factors if necessary
+model_data <- model_data %>%
+  mutate(across(where(is.character), as.factor))  # Convert character columns to factors
+
+# Split data into training (70%) and testing (30%)
+set.seed(42)  # Ensure reproducibility
+train_index <- sample(seq_len(nrow(model_data)), size = 0.7 * nrow(model_data))
+train_data <- model_data[train_index, ]
+test_data <- model_data[-train_index, ]
+
+# Convert exemption to factor for classification
+train_data$exemption <- as.factor(train_data$exemption)
+test_data$exemption <- as.factor(test_data$exemption)
+
+# Train Random Forest Model with a Smaller Dataset to Avoid Memory Issues
+rf_model <- randomForest(
+  exemption ~ ., 
+  data = train_data, 
+  ntree = 10,  # Reduce trees to prevent memory issues
+  mtry = floor(sqrt(ncol(train_data) - 1)),  # Ensures valid variable selection
+  importance = TRUE
+)
+
+# Model Summary
+print(rf_model)
+
+# Evaluate model performance on test data
+predictions <- predict(rf_model, newdata = test_data)
+conf_matrix <- table(test_data$exemption, predictions)
+
+# Print confusion matrix
+print(conf_matrix)
+
+# Feature Importance
+importance(rf_model)
+varImpPlot(rf_model)
+```
+
