@@ -92,7 +92,7 @@ data_categorical<-properties_model %>%
         axis.text.x = element_text(angle = 60, hjust = 1,size=6))+
   scale_x_discrete(labels = function(x) str_trunc(x, 10)) 
 
-print(data_Categorical)
+print(data_categorical)
 ```
 
 ## Correlation Matrix
@@ -167,10 +167,8 @@ nn_function <- function(measureFrom,measureTo,k) {
 # TIDY MODELS VERSION
 ```{r}
 ### Set up Ames Housing Data
-properties_model <- properties_model%>%
+properties_model<- properties_model%>%
   mutate(property_ID = seq(1:n()))
-
-properties_model <- sample_n(properties_model, 1000)
 
 ```
 
