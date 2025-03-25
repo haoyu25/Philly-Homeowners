@@ -1,0 +1,496 @@
+
+# Load required packages for modelling
+```{r, include=FALSE}
+#Package installs -------------------------------------------------------------
+load.fun <- function(x) { 
+  x <- as.character(x) 
+  if(isTRUE(x %in% .packages(all.available=TRUE))) { 
+    eval(parse(text=paste("require(", x, ")", sep=""))) 
+    print(paste(c(x, " : already installed; requiring"), collapse=''))
+  } else { 
+    #update.packages()
+    print(paste(c(x, " : not installed; installing"), collapse=''))
+    eval(parse(text=paste("install.packages('", x, "')", sep=""))) 
+    print(paste(c(x, " : installed and requiring"), collapse=''))
+    eval(parse(text=paste("require(", x, ")", sep=""))) 
+  } 
+} 
+
+########### Required Packages ###########
+packages = c("bayesplot", "lme4","RcppEigen",
+             "tidyverse", "tidyr", "AmesHousing", "broom", "caret", "dials", "doParallel", "e1071", "earth",
+             "ggrepel", "glmnet", "ipred", "klaR", "kknn", "pROC", "rpart", "randomForest",
+             "sessioninfo", "tidymodels","ranger", "recipes", "workflows", "themis","xgboost",
+             "sf", "nngeo", "mapview","data.table","ggplot2","corrr","rsample","parsnip","tidymodels")
+
+for(i in seq_along(packages)){
+  packge <- as.character(packages[i])
+  load.fun(packge)
+}
+
+session_info()
+# Color palette
+palette2 <- c("#e42524", "#00ADA9")
+palette5 <- c('#BF4146', '#E5A186', '#F1C8BB', '#B3CADB','#6683a9')
+```
+
+# Combining all datasets 
+```{r}
+properties_model<-fread("~/Downloads/properties_model.csv")
+
+glimpse(properties_model)
+```
+
+# Feature overview
+
+## Continous Features
+```{r}
+data_continous <-properties_model %>%
+    dplyr::select(exemption, 
+                  perc_bdg_exempt,balance_total,balance_rate,
+                  avg_market_value,sd_market_value,
+                  median_home_value,owner_vacancy_rate,diversity_index,limited_english_rate
+                  ) %>%
+    gather(Variable, value, -exemption) %>%
+    ggplot() + 
+    geom_density(aes(value, color=as.factor(exemption)), fill = "transparent") + 
+    facet_wrap(~Variable, scales = "free") +
+    scale_color_manual(values = palette2) +
+    labs(title = "Feature associations with Exemption",
+         subtitle = "(continous features)")+ theme_minimal()+
+  theme(legend.position = "bottom") 
+
+print(data_continous) 
+
+```
+
+
+## Categorical Features
+```{r}
+data_categorical<-properties_model %>%
+    dplyr::select(exemption, 
+                  same_address,likely_other_prog,tax_bdg_status,is_deep,large_area,
+                  rental_license,commercial_license,has_recent_transfer
+                  ,latest_document_type
+                  )%>%
+    gather(Variable, value, -exemption) %>%
+    count(Variable, value, exemption)%>%
+      ggplot(., aes(value, n, fill = as.factor(exemption))) +   
+        geom_bar(position = "dodge", stat="identity") +
+        facet_wrap(~Variable, scales="free")  +
+        scale_fill_manual(values = palette2) +
+        labs(x="Categories", y="Value",
+             title = "Feature associations with Exemption",
+             subtitle = "Categorical features") +
+  theme_minimal()+
+  theme(legend.position = "bottom",
+        axis.text.x = element_text(angle = 60, hjust = 1,size=6))+
+  scale_x_discrete(labels = function(x) str_trunc(x, 10)) 
+
+print(data_categorical)
+```
+
+## Correlation Matrix
+
+```{r}
+numericVars <- as.data.frame(properties_model) %>%
+  dplyr::select(#exemption, 
+                perc_bdg_exempt,balance_total,balance_rate,
+                avg_market_value,sd_market_value,
+                median_home_value,owner_vacancy_rate,diversity_index,limited_english_rate,
+                same_address,likely_other_prog,tax_bdg_status,is_deep,large_area,
+                rental_license,commercial_license,has_recent_transfer,
+                latest_document_type
+                ) %>%  
+  select_if(is.numeric) %>% 
+  na.omit() 
+
+correlation_matrix <- cor(numericVars)
+
+
+numericVars %>% 
+  correlate() %>% 
+  autoplot() +
+  geom_tile(aes(fill = r), color = "#e9e9e9") +
+  geom_text(aes(label = round(r,digits=2)), size = 3) +
+  scale_fill_gradient2(low =  "#00ADA9", mid = "white", high =  "#e42524",
+                       midpoint = 0, limits = c(-1, 1),
+                       breaks = seq(-1, 1, by = 0.2)) +
+  labs(title = "Correlation across numeric variables")  # Set plot title
+```
+
+```{r}
+library(GGally)
+
+vars1<-numericVars%>%dplyr::select(balance_total,balance_rate,median_home_value,
+                                   sd_market_value,avg_market_value,
+                                   limited_english_rate,diversity_index)
+ggpairs(vars1, upper = list(continuous = wrap("cor", size = 3)))
+```
+
+
+```{r, include=FALSE}
+source("1_Package_Setup.R")
+
+# Making a nearest neighbor feature
+set.seed(717)
+theme_set(theme_bw())
+
+"%!in%" <- Negate("%in%")
+g <- glimpse
+
+nn_function <- function(measureFrom,measureTo,k) {
+  library(FNN)
+  nn <-   
+    FNN::get.knnx(measureTo, measureFrom, k)$nn.dist
+  output <-
+    as.data.frame(nn) %>%
+    rownames_to_column(var = "thisPoint") %>%
+    gather(points, point_distance, V1:ncol(.)) %>%
+    arrange(as.numeric(thisPoint)) %>%
+    group_by(thisPoint) %>%
+    summarize(pointDistance = mean(point_distance)) %>%
+    arrange(as.numeric(thisPoint)) %>% 
+    dplyr::select(-thisPoint) %>%
+    pull()
+  
+  return(output)  
+}
+```
+
+
+#KNN
+```{r}
+# 安装必要包
+install.packages(c("tidymodels", "kknn", "doParallel"))
+
+# 加载库
+library(tidymodels)
+library(kknn)
+library(doParallel)
+```
+
+```{r}
+# 数据预处理
+properties_clean <- properties_model %>%
+  dplyr::select(-V1, -objectid, -x_2272, -y_2272, -lon_4326, -lat_4326)
+
+properties_clean <- properties_clean %>%
+  mutate(
+    across(where(is.numeric), ~if_else(is.na(.), median(., na.rm = TRUE), .)),
+    across(where(is.character), ~coalesce(., "Unknown"))
+  )
+```
+
+
+```{r}
+library(recipes)
+model_rec <- recipe(exemption ~ ., data = properties_clean) %>%
+  step_string2factor(all_nominal_predictors()) %>%  # 将字符列转为因子
+  step_dummy(all_nominal_predictors()) %>%         # 将因子转为哑变量
+  step_impute_median(all_numeric_predictors()) %>% # 用中位数填充数值NA
+  step_zv(all_predictors()) %>%                    # 移除零方差特征
+  step_normalize(all_numeric_predictors())         # 标准化数值特征
+```
+
+```{r}
+set.seed(123)
+data_split <- initial_split(properties_clean, strata = "exemption", prop = 0.75)
+train_data <- training(data_split)
+test_data <- testing(data_split)
+```
+
+
+```{r}
+# 5. 应用预处理
+prepped_data <- prep(model_rec, training = train_data)
+train_processed <- bake(prepped_data, new_data = train_data)
+test_processed <- bake(prepped_data, new_data = test_data)
+```
+
+```{r}
+# 6. 转换为矩阵（安全方法）
+# 确保只选择数值列并排除目标变量
+numeric_cols <- sapply(train_processed, is.numeric)
+numeric_cols <- names(numeric_cols)[numeric_cols & names(numeric_cols) != "exemption"]
+
+train_x <- as.matrix(train_processed[, numeric_cols])
+train_y <- train_processed$exemption
+test_x <- as.matrix(test_processed[, numeric_cols])
+```
+
+
+```{r}
+# 7. 运行KNN模型
+knn_pred <- knn(
+  train = train_x, 
+  test = test_x, 
+  cl = train_y, 
+  k = 5,          # 邻居数量
+  prob = TRUE     # 返回概率
+)
+
+# 8. 提取预测结果
+prob_attr <- attr(knn_pred, "prob")
+pred_prob <- ifelse(knn_pred == "1", prob_attr, 1 - prob_attr)
+pred_class <- as.integer(as.character(knn_pred))
+```
+
+```{r}
+library(caret)
+confusionMatrix(factor(pred_class), factor(test_data$exemption))
+```
+
+```{r}
+potential_missed <- test_data %>%
+  mutate(
+    pred_class = pred_class,
+    pred_prob = pred_prob
+  ) %>%
+  filter(pred_class == 1 & exemption == 0) %>%
+  # 保留所有原始变量
+  select(everything()) 
+
+# 添加模型置信度标记
+potential_missed <- potential_missed %>%
+  mutate(
+    confidence_level = case_when(
+      pred_prob > 0.8 ~ "High",
+      pred_prob > 0.6 ~ "Medium",
+      TRUE ~ "Low"
+    )
+  )
+```
+
+
+```{r}
+# 使用随机森林评估特征重要性
+library(ranger)
+imp_model <- ranger(
+  as.factor(confidence_level) ~ .,
+  data = potential_missed %>% 
+    select(-contains("id"), -pred_class, -exemption),
+  importance = "permutation"
+)
+
+# 可视化重要性
+importance_df <- data.frame(
+  Feature = names(imp_model$variable.importance),
+  Importance = imp_model$variable.importance
+)
+
+ggplot(importance_df, aes(x = reorder(Feature, Importance), y = Importance)) +
+  geom_col(fill = "steelblue") +
+  coord_flip() +
+  labs(title = "特征重要性排序", x = "")
+```
+
+
+
+#spatial
+```{r}
+library(RANN)  # 快速最近邻搜索
+library(geosphere)  # 地理距离计算
+# 1. 明确使用dplyr并处理命名空间冲突
+library(dplyr)
+# 查看原始数据结构
+str(properties_model[, c("lon_4326", "lat_4326")])
+
+# 确认列是否存在
+"lon_4326" %in% colnames(properties_model)
+"lat_4326" %in% colnames(properties_model)
+```
+```{r}
+library(data.table)
+library(RANN)
+library(geosphere)
+
+setDT(properties_model)
+
+coords <- as.matrix(properties_model[, .(lon_4326, lat_4326)])
+
+coords_scaled <- scale(coords)
+
+system.time({
+  knn_result <- nn2(coords_scaled, k = 6)
+})
+
+properties_model[, `:=`(
+  nearest_1 = objectid[knn_result$nn.idx[,2]],
+  nearest_2 = objectid[knn_result$nn.idx[,3]],
+  dist_1 = diag(distHaversine(
+    coords,
+    coords[knn_result$nn.idx[,2], ]
+  )),
+  dist_2 = diag(distHaversine(
+    coords,
+    coords[knn_result$nn.idx[,3], ]
+  )),
+  
+  neighbors_500m = sapply(1:.N, function(i) {
+    sum(distHaversine(
+      coords[i, ],
+      coords[knn_result$nn.idx[i, -1], ]
+    ) <= 500)
+  })
+)]
+
+properties_model[, .(objectid, nearest_1, dist_1, neighbors_500m)] %>% head()
+```
+```{r}
+library(sf)
+library(data.table)
+
+
+properties_sf <- st_as_sf(properties_model, coords = c("lon_4326", "lat_4326"), crs = 4326)
+properties_utm <- st_transform(properties_sf, 32618) 
+coords_utm <- st_coordinates(properties_utm)
+
+
+chunk_size <- 50000
+properties_model[, neighbors_500m := 0L]
+
+for(i in seq(1, nrow(coords_utm), chunk_size)){
+  idx <- i:min(i+chunk_size-1, nrow(coords_utm))
+  
+
+  dist_chunk <- as.matrix(dist(coords_utm[idx,]))
+  
+
+  properties_model[idx, neighbors_500m := 
+    rowSums(dist_chunk[, knn_result$nn.idx[idx,-1]] <= 500)]
+  
+  rm(dist_chunk); gc()
+}
+```
+
+
+# TIDY MODELS VERSION
+```{r}
+### Set up Ames Housing Data
+properties_model<- properties_model%>%
+  mutate(property_ID = seq(1:n()))
+
+```
+
+```{r}
+### Initial Split for Training and Test
+data_split <- initial_split(properties_model, strata = "zip_code", prop = 0.75)
+properties_train <- training(data_split)
+properties_test  <- testing(data_split)
+
+
+### Cross Validation
+## LOGOCV on Neighborhood with group_vfold_cv()
+cv_splits_geo <- group_vfold_cv(properties_train,  
+                                group = "geographic_ward")
+print(cv_splits_geo)
+```
+
+```{r}
+# Feature Creation
+model_rec <- recipe(exemption ~ ., data = properties_train)  %>%
+  step_dummy(all_nominal_predictors()) %>%  
+  step_zv(all_predictors()) %>%
+  step_center(all_numeric_predictors()) %>%
+  step_scale(all_numeric_predictors())
+```
+
+
+
+```{r, include=FALSE}
+## Model specifications
+
+XGB_plan <- boost_tree() %>%
+  set_args(mtry  = tune()) %>%
+  set_args(min_n = tune()) %>%
+  #set_args(learn_rate = tune())%>%
+  #set_args(tree_depth = tune())%>%
+  set_args(trees = 200) %>% 
+  set_engine("xgboost") %>% 
+  set_mode("regression")
+
+
+# Hyperparameter grid for glmnet (penalization)
+xgb_grid <- expand.grid(
+  mtry = c(3, 5, 7, 10),  
+  min_n = c(1, 5, 10)
+  #, learn_rate = c(0.01, 0.3), 
+  #tree_depth = c(3, 5, 7, 10)  
+)
+
+# create workflow
+xgb_wf <-
+  workflow() %>% 
+  add_recipe(model_rec) %>% 
+  add_model(XGB_plan)
+
+
+# fit model to workflow and calculate metrics
+control <- control_resamples(save_pred = TRUE, verbose = TRUE)
+metrics <- metric_set(rmse, rsq, mape, smape)
+xgb_tuned <- xgb_wf %>%
+  tune::tune_grid(.,
+                  resamples = cv_splits_geo,
+                  grid      = xgb_grid,
+                  control   = control,
+                  metrics   = metrics)
+```
+
+
+```{r}
+## metrics across grid
+collect_metrics(xgb_tuned)
+
+## 'Best' by some metric and margin
+show_best(xgb_tuned, metric = "rsq", n = 15)
+
+xgb_best_params    <- select_best(xgb_tuned, metric = "rmse"   )
+
+xgb_best_wf    <- finalize_workflow(xgb_wf, xgb_best_params)
+
+# last_fit() emulates the process where, after determining the best model, the final fit on the entire training set is needed and is then evaluated on the test set.
+
+xgb_val_fit_geo <- xgb_best_wf %>% 
+  last_fit(split     = data_split,
+           control   = control,
+           metrics   = metrics)
+
+```
+
+```{r}
+# Pull best hyperparam preds from out-of-fold predictions
+xgb_best_OOF_preds <- collect_predictions(xgb_tuned) %>% 
+  filter(mtry  == xgb_best_params$mtry[1] & min_n == xgb_best_params$min_n[1])
+
+# collect validation set predictions from last_fit model
+xgb_val_pred_geo    <- collect_predictions(xgb_val_fit_geo)
+```
+
+
+```{r}
+collect_metrics(xgb_tuned) %>%
+  filter(.metric == "rmse") %>%
+  ggplot(aes(x = factor(mtry), y = mean, fill = factor(min_n))) +
+  geom_bar(stat = "identity", position = "dodge") +
+  labs(title = "RMSE Across Different Hyperparameter Combinations",
+       x = "mtry",
+       y = "Mean RMSE",
+       fill = "min_n") +
+  theme_minimal()
+```
+
+
+```{r}
+xgb_val_pred_geo %>%
+  ggplot(aes(x = .pred, y = exemption)) +
+  geom_point(alpha = 0.5, color = "blue") +
+  geom_abline(intercept = 0, slope = 1, linetype = "dashed", color = "red") +
+  labs(title = "Predicted vs. Actual Values",
+       x = "Predicted Exemption",
+       y = "Actual Exemption") +
+  theme_minimal()
+```
+
+
+
