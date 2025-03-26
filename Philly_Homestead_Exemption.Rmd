@@ -136,7 +136,7 @@ Every observation in the Property and Assessment History dataset is one property
 There is a column 'homestead_exemption' within this dataset which indicates the taxable portion amount removed from the property assessment of the house. It should be noted that there are 14 properties that had a homestead exemption larger then $100,000, the maximum possible amount, which is suspected to be a clerical error and has been flagged to the PhillyStat360 team. The dependent variable for the model is derived from this feature by creating a binary variable on whether or not the property is currently enrolled in the homestead exemption program, indicated by a non-zero value. There are 246,853 properties with a homestead exemption.
 
 ```{r}
-properties <- fread("C:/Users/rache/Documents/Github/Philly-Homeowners/Data/opa_properties_public.csv")
+properties <- fread("data/opa_properties_public.csv")
 filtered_properties_ex <- properties %>%
   mutate(exemption = ifelse(homestead_exemption == 0, 0, 1))
 ```
@@ -197,7 +197,7 @@ residential_properties <- filtered_properties %>% filter(is_residential == 1)
 
 ```
 
- ```{r}
+```{r}
 # Count the number of properties by owner_1
 owner_property_count <- filtered_properties %>%
   group_by(owner_1) %>%
@@ -687,6 +687,25 @@ ggplot(residential_properties, aes(x = same_address, fill = as.factor(exemption)
 
 ```
 
+#### Predictor Variables: whether the owner has 10 or more properties.
+
+```{r}
+owner_property_count <- owner_property_count %>%
+  mutate(owner_property_count = ifelse(property_count >= 10, 1, owner_property_count))
+
+```
+
+```{r}
+#join to dataset
+residential_properties <- residential_properties %>%
+  left_join(owner_property_count %>%
+              dplyr::select(owner_1, owner_property_count), 
+            by = "owner_1") %>%
+  mutate(owner_property_count = ifelse(is.na(owner_property_count), 0, owner_property_count))
+
+```
+
+
 #### Predictor Variables 3 & 4: Property Characteristics
 Depth of the property as well as the total property area were also predictors, although not as useful as the eligibility criteria. 
 ```{r}
@@ -907,7 +926,11 @@ balances <- read.csv("Data/real_estate_tax_balances_census_tract.csv")
 ```{r}
 balance_sf <- census_tracts_enriched %>% 
   left_join(balances %>% dplyr::select(census_tract,balance,num_props), 
-            by = c("GEOID" = "census_tract")) 
+            by = c("GEOID" = "census_tract")) %>%
+  mutate(
+    num_props = ifelse(is.na(total_properties), NA, num_props),
+    balance = ifelse(is.na(total_properties), NA, balance)
+  )
 
 
 ggplot(balance_sf) +
@@ -978,8 +1001,8 @@ properties_balance <- properties_sf_number %>%
   mutate(balance_avg = replace(balance_avg, is.na(balance_avg), 0),
          balance_total = replace(balance_total, is.na(balance_total), 0),
          tax_props=replace(tax_props,is.na(tax_props),0))%>%
-  mutate(balance_rate=tax_props/total_props)
-  
+  mutate(balance_rate=tax_props/total_props)%>%
+  filter(!is.na(census_tract)) 
 ```
 
 ```{r}
@@ -1570,7 +1593,7 @@ ggplot(occupancy_analysis, aes(x = owner_occ_rate, y = pct_homestead_owners)) +
   ) +
   theme_minimal()
 
-ggsave("outputs/homestead-exemption-distribution.png", census_hist, width = 10, height = 6)
+# ggsave("outputs/homestead-exemption-distribution.png", census_hist, width = 10, height = 6)
 ```
 This scatter plot reveals important patterns in homestead exemption participation across Philadelphia's neighborhoods. By comparing census tract data on owner occupancy rates (from the 2022 5-year ACS) with homestead exemption enrollment, we can identify areas where participation could be improved.
 
@@ -1730,8 +1753,9 @@ zoning_summary_chart <- ggplot(zoning_summary,
 
 
 zoning_summary_chart
-ggsave("outputs/homestead-exemption-zoning_summary_chart.png", zoning_summary_chart, width = 10, height = 6)
+# ggsave("outputs/homestead-exemption-zoning_summary_chart.png", zoning_summary_chart, width = 10, height = 6)
 ```
+
 
 # Modeling
 ```{r}
@@ -1775,25 +1799,20 @@ colnames(residential_properties)
 properties_model <- residential_properties %>% dplyr::select(objectid, census_tract, geographic_ward, zip_code, 
                                                       x_2272, y_2272, lon_4326, lat_4326, exemption,
                                                       same_address, perc_bdg_exempt, likely_other_prog, tax_bdg_status,
-                                                      is_deep, large_area,
+                                                      is_deep, large_area,owner_property_count,
                                                       rental_license, commercial_license, 
-                                                      balance_total, balance_rate,
+                                                      balance_rate,#balance_total, 
                                                       avg_market_value, sd_market_value,
                                                       has_recent_transfer, latest_document_type,
                                                       pct_foreign_born,
                                                       overall_vacancy_rate,owner_vacancy_rate,rental_vacancy_rate,
-                                                      poverty_rate, bach_degree_rate,
+                                                      poverty_rate, #bach_degree_rate,
                                                       young_owner_rate,middle_owner_rate,senior_owner_rate,family_hh_rate,
-                                                      limited_english_rate, median_income, diversity_index,
-                                                      median_home_value,median_multiple,
-                                                      cost_burden_rate,mortgage_burden_rate,diversity_index,gentrification_risk
+                                                      limited_english_rate, diversity_index,#median_income, 
+                                                      cost_burden_rate,mortgage_burden_rate,median_home_value
                                                       )
 
 write.csv(properties_model,"properties_model.csv", row.names = TRUE)
-
-print(residential_properties %>%
-  summarise(across(everything(), ~sum(is.na(.)))) %>%
-  tidyr::pivot_longer(cols = everything(), names_to = "Column", values_to = "NA_Count"), n = 200)
 ```
 
 SEE MODELLING_DRAFT.RMD
