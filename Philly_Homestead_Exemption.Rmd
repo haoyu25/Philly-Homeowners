@@ -691,7 +691,7 @@ ggplot(residential_properties, aes(x = same_address, fill = as.factor(exemption)
 
 ```{r}
 owner_property_count <- owner_property_count %>%
-  mutate(owner_count = ifelse(property_count >= 10, 1, owner_count))
+  mutate(owner_count = ifelse(property_count >= 10, 1, 0))
 
 ```
 
@@ -1462,7 +1462,9 @@ residential_properties <- residential_properties %>%
     transfers_new %>%
       dplyr::select(parcel_number, has_recent_transfer, latest_document_type),
     by = c("parcel_number" = "parcel_number")
-  )
+  )%>%
+  mutate(has_recent_transfer = ifelse(is.na(has_recent_transfer), 0, has_recent_transfer))%>%
+  mutate(latest_document_type = ifelse(is.na(latest_document_type), "none", latest_document_type))
 ```
 
 
@@ -1805,14 +1807,48 @@ properties_model <- residential_properties %>% dplyr::select(objectid, census_tr
                                                       avg_market_value, sd_market_value,
                                                       has_recent_transfer, latest_document_type,
                                                       pct_foreign_born,
-                                                      overall_vacancy_rate,owner_vacancy_rate,rental_vacancy_rate,
-                                                      poverty_rate, #bach_degree_rate,
-                                                      young_owner_rate,middle_owner_rate,senior_owner_rate,family_hh_rate,
+                                                      overall_vacancy_rate, poverty_rate, #bach_degree_rate,
+                                                      young_owner_rate,senior_owner_rate,family_hh_rate,
                                                       limited_english_rate, diversity_index,#median_income, 
                                                       cost_burden_rate,mortgage_burden_rate,median_home_value
                                                       )
 
 write.csv(properties_model,"properties_model.csv", row.names = TRUE)
+```
+
+```{r}
+print(properties_model %>%
+  summarise(across(everything(), ~sum(is.na(.)))) %>%
+  tidyr::pivot_longer(cols = everything(), names_to = "Column", values_to = "NA_Count"), n = 200)
+```
+
+```{r}
+numericVars <- as.data.frame(properties_model) %>%
+  dplyr::select(exemption,
+                same_address, perc_bdg_exempt,
+                likely_other_prog, tax_bdg_status,is_deep, large_area,owner_count,
+                rental_license, commercial_license, balance_rate, 
+                avg_market_value, sd_market_value,has_recent_transfer, latest_document_type,
+                pct_foreign_born,overall_vacancy_rate,poverty_rate, 
+                young_owner_rate,senior_owner_rate,
+                family_hh_rate,limited_english_rate,diversity_index,
+                cost_burden_rate,mortgage_burden_rate,median_home_value
+                ) %>%  
+  select_if(is.numeric) %>% 
+  na.omit() 
+
+correlation_matrix <- cor(numericVars)
+
+
+numericVars %>% 
+  correlate() %>% 
+  autoplot() +
+  geom_tile(aes(fill = r), color = "#e9e9e9") +
+  geom_text(aes(label = round(r,digits=2)), size = 3) +
+  scale_fill_gradient2(low =  "#00ADA9", mid = "white", high =  "#e42524",
+                       midpoint = 0, limits = c(-1, 1),
+                       breaks = seq(-1, 1, by = 0.2)) +
+  labs(title = "Correlation across numeric variables")  # Set plot title
 ```
 
 SEE MODELLING_DRAFT.RMD
