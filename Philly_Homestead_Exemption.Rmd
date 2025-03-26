@@ -691,7 +691,7 @@ ggplot(residential_properties, aes(x = same_address, fill = as.factor(exemption)
 
 ```{r}
 owner_property_count <- owner_property_count %>%
-  mutate(owner_property_count = ifelse(property_count >= 10, 1, owner_property_count))
+  mutate(owner_count = ifelse(property_count >= 10, 1, owner_count))
 
 ```
 
@@ -699,9 +699,9 @@ owner_property_count <- owner_property_count %>%
 #join to dataset
 residential_properties <- residential_properties %>%
   left_join(owner_property_count %>%
-              dplyr::select(owner_1, owner_property_count), 
+              dplyr::select(owner_1, owner_count), 
             by = "owner_1") %>%
-  mutate(owner_property_count = ifelse(is.na(owner_property_count), 0, owner_property_count))
+  mutate(owner_count = ifelse(is.na(owner_count), 0, owner_count))
 
 ```
 
@@ -1799,7 +1799,7 @@ colnames(residential_properties)
 properties_model <- residential_properties %>% dplyr::select(objectid, census_tract, geographic_ward, zip_code, 
                                                       x_2272, y_2272, lon_4326, lat_4326, exemption,
                                                       same_address, perc_bdg_exempt, likely_other_prog, tax_bdg_status,
-                                                      is_deep, large_area,owner_property_count,
+                                                      is_deep, large_area,owner_count,
                                                       rental_license, commercial_license, 
                                                       balance_rate,#balance_total, 
                                                       avg_market_value, sd_market_value,
