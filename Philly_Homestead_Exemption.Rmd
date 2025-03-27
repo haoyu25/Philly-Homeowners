@@ -735,61 +735,7 @@ residential_properties %>%
 residential_properties <- residential_properties %>% mutate(large_area = ifelse(total_area > 150000, 1, 0))
 residential_properties %>%
   count(large_area, exemption) %>%
-  tidyr::spread(key = exemption, value = n, fill = 0)  
-
-colnames(residential_properties)
-
-residential_properties <- residential_properties %>%
-  mutate(
-    perc_bdg_exempt = case_when(
-      taxable_building != 0 ~ exempt_building / taxable_building,  # Calculate ratio only when taxable_building > 0
-      taxable_building == 0 ~ 1  # Set to 1 for full exemptions as well (e.g., 10-year abatement)
-    )
-  )
-
-sum(residential_properties$taxable_building == 0, na.rm = TRUE)
-sum(residential_properties$perc_bdg_exempt == 1, na.rm = TRUE)
-
-residential_properties %>%
-  group_by(exemption) %>%
-  summarise(
-    mean_perc_bdg_exempt = mean(perc_bdg_exempt, na.rm = TRUE),
-    median_perc_bdg_exempt = median(perc_bdg_exempt, na.rm = TRUE),
-    count = n()
-  )
-
-residential_properties <- residential_properties %>%
-  mutate(
-    likely_other_prog = case_when(
-      taxable_building == 0 & exempt_building > 0 ~ 1,  # 10-Year Tax Abatement
-      taxable_building > 0 & exempt_building > 100000 ~ 1,  # Likely LOOP (exempt portion is large)
-      TRUE ~ 0
-    )
-  )
-
-residential_properties <- residential_properties %>%
-  mutate(
-    tax_bdg_status = case_when(
-      taxable_building == 0 & exempt_building > 0 ~ "10-Year Abatement",
-      taxable_building > 0 & exempt_building > 100000 ~ "Likely LOOP",
-      exempt_building <= 100000 & exempt_building > 0 ~ "Possible Homestead",
-      TRUE ~ "None"
-    )
-  )
-
-# Count the number of properties by tax_bdg_status and exemption
-count_by_category <- residential_properties %>%
-  group_by(tax_bdg_status, exemption) %>%
-  summarise(count = n())
-
-print(count_by_category)
-
-count_by_category_otherprog <- residential_properties %>%
-  group_by(likely_other_prog, exemption) %>%
-  summarise(count = n())
-
-print(count_by_category_otherprog)
-
+  tidyr::spread(key = exemption, value = n, fill = 0)
 ```
 
 
