@@ -36,7 +36,7 @@ palette5 <- c('#BF4146', '#E5A186', '#F1C8BB', '#B3CADB','#6683a9')
 
 # Combining all datasets 
 ```{r}
-properties_model<-fread("~/Downloads/properties_model.csv")
+properties_model<-fread("C:/Users/13472/Desktop/practicum/properties_model.csv")
 
 glimpse(properties_model)
 ```
@@ -45,22 +45,25 @@ glimpse(properties_model)
 
 ## Continous Features
 ```{r}
-data_continous <-properties_model %>%
-    dplyr::select(exemption, 
-                  perc_bdg_exempt,balance_total,balance_rate,
-                  avg_market_value,sd_market_value,
-                  median_home_value,owner_vacancy_rate,diversity_index,limited_english_rate
-                  ) %>%
-    gather(Variable, value, -exemption) %>%
-    ggplot() + 
-    geom_density(aes(value, color=as.factor(exemption)), fill = "transparent") + 
-    facet_wrap(~Variable, scales = "free") +
-    scale_color_manual(values = palette2) +
-    labs(title = "Feature associations with Exemption",
-         subtitle = "(continous features)")+ theme_minimal()+
-  theme(legend.position = "bottom") 
+data_continous <- properties_model %>%
+  dplyr::select(exemption, 
+                perc_bdg_exempt, balance_rate,
+                avg_market_value, sd_market_value,
+                median_home_value,
+                diversity_index, limited_english_rate
+  ) %>%
+  gather(Variable, value, -exemption) %>%
+  ggplot() + 
+  geom_density(aes(value, color = as.factor(exemption)), fill = "transparent") + 
+  facet_wrap(~Variable, scales = "free") +
+  scale_color_manual(values = palette2) +
+  labs(title = "Feature associations with Exemption",
+       subtitle = "(continuous features)") +
+  theme_minimal() +
+  theme(legend.position = "bottom")
 
-print(data_continous) 
+print(data_continous)
+
 
 ```
 
@@ -95,9 +98,9 @@ print(data_categorical)
 ```{r}
 numericVars <- as.data.frame(properties_model) %>%
   dplyr::select(#exemption, 
-                perc_bdg_exempt,balance_total,balance_rate,
+                perc_bdg_exempt,balance_rate,
                 avg_market_value,sd_market_value,
-                median_home_value,owner_vacancy_rate,diversity_index,limited_english_rate,
+                median_home_value,diversity_index,limited_english_rate,
                 same_address,likely_other_prog,tax_bdg_status,is_deep,large_area,
                 rental_license,commercial_license,has_recent_transfer,
                 latest_document_type
@@ -122,7 +125,7 @@ numericVars %>%
 ```{r}
 library(GGally)
 
-vars1<-numericVars%>%dplyr::select(balance_total,balance_rate,median_home_value,
+vars1<-numericVars%>%dplyr::select(balance_rate,median_home_value,
                                    sd_market_value,avg_market_value,
                                    limited_english_rate,diversity_index)
 ggpairs(vars1, upper = list(continuous = wrap("cor", size = 3)))
@@ -157,6 +160,27 @@ nn_function <- function(measureFrom,measureTo,k) {
   return(output)  
 }
 ```
+
+
+#KNN tidymodel
+
+
+```{r}
+library(tidymodels)
+library(doParallel)
+
+# 并行加速
+cl <- makePSOCKcluster(parallel::detectCores() - 1)
+registerDoParallel(cl)
+
+set.seed(123)
+theme_set(theme_bw())
+```
+
+
+
+
+
 
 
 #KNN
