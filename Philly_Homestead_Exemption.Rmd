@@ -207,6 +207,7 @@ owner_property_count <- filtered_properties %>%
 # View the result
 print(owner_property_count, n = 1000)
 ```
+
 #### Transform to geodata in both 2272 and 4326 planes
 
 ```{r}
@@ -222,6 +223,28 @@ residential_properties <- properties_sf %>%
     lon_4326 = st_coordinates(.)[,1],  # Longitude in EPSG:4326
     lat_4326 = st_coordinates(.)[,2]   # Latitude in EPSG:4326
   ) %>%
+  st_drop_geometry()
+```
+
+# Neighborhoods
+```{r}
+neighborhoods <- st_read("data/philadelphia-neighborhoods.geojson")
+neighborhoods <- st_make_valid(neighborhoods)  
+neighborhoods <- neighborhoods %>% st_transform(philly_neighborhoods, crs = 4326)
+
+properties_sf_again <- st_as_sf(residential_properties, coords = c("lon_4326", "lat_4326"), crs = 4326)
+
+properties_with_neighborhood <- st_join(properties_sf_again, neighborhoods, left = TRUE)
+
+properties_with_neighborhood <- properties_with_neighborhood %>%
+  mutate(
+    lon_4326 = st_coordinates(.)[, 1],  # Extract longitude
+    lat_4326 = st_coordinates(.)[, 2]   # Extract latitude
+  )
+
+# Keep only relevant columns
+residential_properties <- properties_with_neighborhood %>%
+  select(-LISTNAME, -MAPNAME, everything(), neighborhood = NAME) %>%
   st_drop_geometry()
 ```
 
@@ -248,6 +271,11 @@ tract_summary <- properties_tract %>%
 # Create final enriched dataset
 census_tracts_enriched <- census_tracts %>%
   left_join(tract_summary, by = "GEOID")
+
+census_tracts_enriched <- census_tracts_enriched %>%
+  mutate(
+    owner_occ_rate = (census_tracts_enriched$owner_hh / census_tracts_enriched$occupied_units) * 100
+  )
 ```
 
 
@@ -599,12 +627,6 @@ ggplot(census_tracts_enriched) +
 ```
 
 ```{r}
-census_tracts_enriched <- census_tracts_enriched %>%
-  mutate(
-    owner_occ_rate = (census_tracts_enriched$owner_hh / census_tracts_enriched$occupied_units) * 100
-  )
-    
-    
 low_enrollment_tracts <- census_tracts_enriched %>%
   filter(pop_density >= 2000 & 
          total_properties >= 100 & 
@@ -735,61 +757,7 @@ residential_properties %>%
 residential_properties <- residential_properties %>% mutate(large_area = ifelse(total_area > 150000, 1, 0))
 residential_properties %>%
   count(large_area, exemption) %>%
-  tidyr::spread(key = exemption, value = n, fill = 0)  
-
-colnames(residential_properties)
-
-residential_properties <- residential_properties %>%
-  mutate(
-    perc_bdg_exempt = case_when(
-      taxable_building != 0 ~ exempt_building / taxable_building,  # Calculate ratio only when taxable_building > 0
-      taxable_building == 0 ~ 1  # Set to 1 for full exemptions as well (e.g., 10-year abatement)
-    )
-  )
-
-sum(residential_properties$taxable_building == 0, na.rm = TRUE)
-sum(residential_properties$perc_bdg_exempt == 1, na.rm = TRUE)
-
-residential_properties %>%
-  group_by(exemption) %>%
-  summarise(
-    mean_perc_bdg_exempt = mean(perc_bdg_exempt, na.rm = TRUE),
-    median_perc_bdg_exempt = median(perc_bdg_exempt, na.rm = TRUE),
-    count = n()
-  )
-
-residential_properties <- residential_properties %>%
-  mutate(
-    likely_other_prog = case_when(
-      taxable_building == 0 & exempt_building > 0 ~ 1,  # 10-Year Tax Abatement
-      taxable_building > 0 & exempt_building > 100000 ~ 1,  # Likely LOOP (exempt portion is large)
-      TRUE ~ 0
-    )
-  )
-
-residential_properties <- residential_properties %>%
-  mutate(
-    tax_bdg_status = case_when(
-      taxable_building == 0 & exempt_building > 0 ~ "10-Year Abatement",
-      taxable_building > 0 & exempt_building > 100000 ~ "Likely LOOP",
-      exempt_building <= 100000 & exempt_building > 0 ~ "Possible Homestead",
-      TRUE ~ "None"
-    )
-  )
-
-# Count the number of properties by tax_bdg_status and exemption
-count_by_category <- residential_properties %>%
-  group_by(tax_bdg_status, exemption) %>%
-  summarise(count = n())
-
-print(count_by_category)
-
-count_by_category_otherprog <- residential_properties %>%
-  group_by(likely_other_prog, exemption) %>%
-  summarise(count = n())
-
-print(count_by_category_otherprog)
-
+  tidyr::spread(key = exemption, value = n, fill = 0)
 ```
 
 
@@ -1343,6 +1311,7 @@ Predictive Data to Use:
 
 ```{r}
 transfers2 <- read.csv("Data/RTT_SUMMARY.csv")
+
 ```
 
 ```{r}
@@ -1393,7 +1362,7 @@ Predictive Data to Use:
 
 minimal_threshold <- 10 
 
-residential_transfers
+colnames(residential_transfers)
 
 minimal_financial_transfers <- residential_transfers %>%
   filter(total_consideration <= minimal_threshold)
@@ -1798,20 +1767,16 @@ colnames(residential_properties)
 ```
 
 ```{r}
-properties_model <- residential_properties %>% dplyr::select(objectid, census_tract, geographic_ward, zip_code, 
-                                                      x_2272, y_2272, lon_4326, lat_4326, exemption,
-                                                      same_address, perc_bdg_exempt, likely_other_prog, tax_bdg_status,
-                                                      is_deep, large_area,owner_count,
-                                                      rental_license, commercial_license, 
-                                                      balance_rate,#balance_total, 
-                                                      avg_market_value, sd_market_value,
-                                                      has_recent_transfer, latest_document_type,
-                                                      pct_foreign_born,
-                                                      overall_vacancy_rate, poverty_rate, #bach_degree_rate,
-                                                      young_owner_rate,senior_owner_rate,family_hh_rate,
-                                                      limited_english_rate, diversity_index,#median_income, 
-                                                      cost_burden_rate,mortgage_burden_rate,median_home_value
-                                                      )
+properties_model <- residential_properties %>% 
+  dplyr::select(objectid, census_tract, geographic_ward, neighborhood, zip_code, 
+                x_2272, y_2272, lon_4326, lat_4326, exemption, same_address,
+                is_deep, large_area,owner_count, rental_license, commercial_license, 
+                balance_rate, avg_market_value, sd_market_value,
+                has_recent_transfer, latest_document_type,
+                pct_foreign_born, overall_vacancy_rate, poverty_rate, bach_degree_rate,
+                young_owner_rate,senior_owner_rate,family_hh_rate, limited_english_rate,
+                diversity_index, median_income, owner_occ_rate,
+                cost_burden_rate,mortgage_burden_rate,median_home_value)
 
 write.csv(properties_model,"properties_model.csv", row.names = TRUE)
 ```
@@ -1825,12 +1790,11 @@ print(properties_model %>%
 ```{r}
 numericVars <- as.data.frame(properties_model) %>%
   dplyr::select(exemption,
-                same_address, perc_bdg_exempt,
-                likely_other_prog, tax_bdg_status,is_deep, large_area,owner_count,
+                same_address, large_area,owner_count,
                 rental_license, commercial_license, balance_rate, 
-                avg_market_value, sd_market_value,has_recent_transfer, latest_document_type,
-                pct_foreign_born,overall_vacancy_rate,poverty_rate, 
-                young_owner_rate,senior_owner_rate,
+                avg_market_value, sd_market_value, has_recent_transfer, latest_document_type,
+                pct_foreign_born, overall_vacancy_rate, poverty_rate, bach_degree_rate, median_income,
+                young_owner_rate,senior_owner_rate, owner_occ_rate,
                 family_hh_rate,limited_english_rate,diversity_index,
                 cost_burden_rate,mortgage_burden_rate,median_home_value
                 ) %>%  
@@ -1838,7 +1802,6 @@ numericVars <- as.data.frame(properties_model) %>%
   na.omit() 
 
 correlation_matrix <- cor(numericVars)
-
 
 numericVars %>% 
   correlate() %>% 
