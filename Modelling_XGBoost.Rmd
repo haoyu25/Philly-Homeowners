@@ -47,14 +47,12 @@ glimpse(properties_model)
 ```{r}
 data_continous <-properties_model %>%
     dplyr::select(exemption, 
-                  perc_bdg_exempt,balance_total,balance_rate,
-                  avg_market_value,sd_market_value,
-                  median_home_value,owner_vacancy_rate,diversity_index,limited_english_rate
-                  #pct_foreign_born,overall_vacancy_rate,rental_vacancy_rate,
-                  #poverty_rate,bach_degree_rate,young_owner_rate,middle_owner_rate,
-                  #senior_owner_rate,family_hh_rate,median_income,
-                  #median_multiple,cost_burden_rate,mortgage_burden_rate,
-                  #gentrification_risk
+                  geographic_ward, 
+                  balance_rate,#balance_total,
+                  #avg_market_value,sd_market_value,perc_bdg_exempt,
+                  pct_foreign_born,overall_vacancy_rate,
+                  bach_degree_rate, limited_english_rate,
+                  diversity_index,median_income,median_home_value,owner_occ_rate,owner_count
                   ) %>%
     gather(Variable, value, -exemption) %>%
     ggplot() + 
@@ -75,10 +73,11 @@ print(data_continous)
 data_categorical<-properties_model %>%
     dplyr::select(exemption, 
                   same_address,likely_other_prog,tax_bdg_status,is_deep,large_area,
-                  rental_license,commercial_license,has_recent_transfer
-                  ,latest_document_type
-                  )%>%
+                  rental_license,commercial_license
+                  ) %>%
+  
     gather(Variable, value, -exemption) %>%
+    filter(complete.cases(.))%>%
     count(Variable, value, exemption)%>%
       ggplot(., aes(value, n, fill = as.factor(exemption))) +   
         geom_bar(position = "dodge", stat="identity") +
@@ -99,13 +98,10 @@ print(data_categorical)
 
 ```{r}
 numericVars <- as.data.frame(properties_model) %>%
-  dplyr::select(#exemption, 
-                perc_bdg_exempt,balance_total,balance_rate,
-                avg_market_value,sd_market_value,
-                median_home_value,owner_vacancy_rate,diversity_index,limited_english_rate,
-                same_address,likely_other_prog,tax_bdg_status,is_deep,large_area,
-                rental_license,commercial_license,has_recent_transfer,
-                latest_document_type
+  dplyr::select(exemption, 
+                
+                young_owner_rate,senior_owner_rate,family_hh_rate,
+                limited_english_rate, median_home_value, diversity_index,mortgage_burden_rate
                 ) %>%  
   select_if(is.numeric) %>% 
   na.omit() 
@@ -127,9 +123,7 @@ numericVars %>%
 ```{r}
 library(GGally)
 
-vars1<-numericVars%>%dplyr::select(balance_total,balance_rate,median_home_value,
-                                   sd_market_value,avg_market_value,
-                                   limited_english_rate,diversity_index)
+vars1<-numericVars%>%dplyr::select(bach_degree_rate,median_income,median_home_value)
 ggpairs(vars1, upper = list(continuous = wrap("cor", size = 3)))
 ```
 
@@ -166,9 +160,22 @@ nn_function <- function(measureFrom,measureTo,k) {
 
 # TIDY MODELS VERSION
 ```{r}
+variables <- c("geographic_ward", "same_address", 
+               "is_deep", "owner_count",
+         "rental_license", "commercial_license","balance_rate", 
+         "avg_market_value", "sd_market_value", "has_recent_transfer", "latest_document_type",
+          "overall_vacancy_rate", "poverty_rate",
+         "young_owner_rate","senior_owner_rate","family_hh_rate",
+         "limited_english_rate", "median_home_value", "diversity_index",
+         "mortgage_burden_rate","owner_occ_rate")
+
+```
+
+```{r}
 ### Set up Ames Housing Data
 properties_model<- properties_model%>%
-  mutate(property_ID = seq(1:n()))
+  mutate(property_ID = seq(1:n()))%>%
+  dplyr::select(all_of(variables), exemption,zip_code)
 
 ```
 
@@ -178,6 +185,9 @@ data_split <- initial_split(properties_model, strata = "zip_code", prop = 0.75)
 properties_train <- training(data_split)
 properties_test  <- testing(data_split)
 
+```
+
+```{r}
 
 ### Cross Validation
 ## LOGOCV on Neighborhood with group_vfold_cv()
@@ -212,8 +222,10 @@ XGB_plan <- boost_tree() %>%
 
 # Hyperparameter grid for glmnet (penalization)
 xgb_grid <- expand.grid(
-  mtry = c(3, 5, 7, 10),  
-  min_n = c(1, 5, 10)
+  mtry = c(3, 7,10
+           ),  
+  min_n = c(1, 5, 10
+            )
   #, learn_rate = c(0.01, 0.3), 
   #tree_depth = c(3, 5, 7, 10)  
 )
@@ -279,17 +291,61 @@ collect_metrics(xgb_tuned) %>%
   theme_minimal()
 ```
 
+```{r}
+xgb_val_pred_geo$exemption.pred <- as.factor(ifelse(xgb_val_pred_geo$.pred >= 0.5, "1", "0") )
+xgb_val_pred_geo$exemption<-as.factor(xgb_val_pred_geo$exemption)
+```
 
 ```{r}
-xgb_val_pred_geo %>%
-  ggplot(aes(x = .pred, y = exemption)) +
-  geom_point(alpha = 0.5, color = "blue") +
-  geom_abline(intercept = 0, slope = 1, linetype = "dashed", color = "red") +
-  labs(title = "Predicted vs. Actual Values",
-       x = "Predicted Exemption",
-       y = "Actual Exemption") +
+caret::confusionMatrix(xgb_val_pred_geo$exemption.pred, xgb_val_pred_geo$exemption, 
+                       positive = "1")
+```
+
+```{r}
+library(data.table)
+fwrite(xgb_val_pred_geo, "xgb_val_pred_geo.csv")
+```
+
+```{r}
+library(plotROC)
+
+ggplot(xgb_val_pred_geo, aes(d = as.numeric(exemption), m = .pred)) +
+  geom_roc(n.cuts = 50, labels = FALSE, colour = "#BF4146") +
+  style_roc(theme = theme_grey) +
+  geom_abline(slope = 1, intercept = 0, size = 1, color = '#6683a9') +
+  labs(title = "ROC Curve") +
   theme_minimal()
 ```
 
+```{r}
 
+ggplot(xgb_val_pred_geo, aes(x = .pred, fill = as.factor(exemption))) + 
+  geom_density() +
+  facet_grid(exemption ~ .) +
+  scale_fill_manual(values = palette2) +
+  labs(x = "Probabilities", y = "Density of probabilities",
+       title = "Distribution of predicted probabilities by observed outcome",
+             subtitle = "No gentrification = 0, Gentrification = 1") +
+  theme_minimal() +
+  theme(legend.position = "none") 
+
+```
+
+```{r}
+properties_model<-fread("properties_model.csv")
+xgb_full_pred <- xgb_best_wf %>% 
+  fit(data = properties_model) %>%
+  predict(new_data = properties_model) %>%
+  bind_cols(properties_model)
+
+```
+
+```{r}
+xgb_full_pred <- xgb_full_pred %>%
+  mutate(exemption.pred = ifelse(.pred >= 0.5, "1", "0"))
+```
+
+```{r}
+fwrite(xgb_full_pred, "xgb_full_pred.csv")
+```
 
