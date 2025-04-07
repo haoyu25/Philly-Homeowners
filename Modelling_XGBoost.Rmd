@@ -267,7 +267,7 @@ xgb_val_pred_geo$exemption.pred <- as.factor(ifelse(xgb_val_pred_geo$.pred >= 0.
 xgb_val_pred_geo$exemption<-as.factor(xgb_val_pred_geo$exemption)
 ```
 
-A confusion matrix of the model results was then produced. 
+A confusion matrix of the model results was then produced. Breaking it down, 205,188 positives are true positives, meaning they are properties with an existing homestead exemption and were accurately predicted to be eligible for the exemption. 34,598 properties were wrongly predicted to not have an exemption although they were already enrolled in one. This false negative rate should be minimized. 152,373 properties were accurately predicted to not have an existing exemption. One can observe there are 77,317 false positives. This is the target group of interest, in which our model predicts that they should have an exemption, meaning they should be eligible for one, yet are not currently enrolled.
 ```{r}
 caret::confusionMatrix(xgb_val_pred_geo$exemption.pred, xgb_val_pred_geo$exemption, 
                        positive = "1")
@@ -290,7 +290,7 @@ ggplot(xgb_val_pred_geo, aes(d = as.numeric(exemption), m = .pred)) +
 ```
 
 
-The density distribution of the predicted probabilities were then
+The density distribution of the predicted probabilities were then plotted. 
 ```{r}
 
 ggplot(xgb_val_pred_geo, aes(x = .pred, fill = as.factor(exemption))) + 
