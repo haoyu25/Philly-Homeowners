@@ -51,8 +51,7 @@ data_continous <-properties_model %>%
                   geographic_ward, 
                   balance_rate,#balance_total,
                   #avg_market_value,sd_market_value,perc_bdg_exempt,
-                  pct_foreign_born,overall_vacancy_rate,
-                  bach_degree_rate, limited_english_rate,
+                  pct_foreign_born,overall_vacancy_rate,limited_english_rate,
                   diversity_index,median_income,median_home_value,owner_occ_rate,owner_count
                   ) %>%
     gather(Variable, value, -exemption) %>%
@@ -72,7 +71,7 @@ print(data_continous)
 ```{r}
 data_categorical<-properties_model %>%
     dplyr::select(exemption, 
-                  same_address,likely_other_prog,tax_bdg_status,is_deep,large_area,
+                  same_address,is_deep,large_area,
                   rental_license,commercial_license
                   ) %>%
   
@@ -262,7 +261,7 @@ collect_metrics(xgb_tuned) %>%
   theme_minimal()
 ```
 
-The threshold is set at 0.5, where any predictions with a probability of 0.5 or over are categorized as predicted to be eligible for the exemption.
+The threshold is set at 0.5, where any predictions with a probability of 0.5 or over are categorized as predicted to be eligible for the exemption. This has 
 ```{r}
 xgb_val_pred_geo$exemption.pred <- as.factor(ifelse(xgb_val_pred_geo$.pred >= 0.5, "1", "0") )
 xgb_val_pred_geo$exemption<-as.factor(xgb_val_pred_geo$exemption)
@@ -290,6 +289,8 @@ ggplot(xgb_val_pred_geo, aes(d = as.numeric(exemption), m = .pred)) +
   theme_minimal()
 ```
 
+
+The density distribution of the predicted probabilities were then
 ```{r}
 
 ggplot(xgb_val_pred_geo, aes(x = .pred, fill = as.factor(exemption))) + 

@@ -1907,7 +1907,7 @@ numericVars %>%
 
 
 
-# Outreach Strategies and Associated Costs
+# Outreach Strategies and Associated Costs and Benefits
 Two main potential outreach strategies are proposed. The costs for each of these strategies were then estimated based on existing cost structure references.
 
 The first potential strategy is a direct mailing campaign, which involves sending flyers out to all properties identified as false positives by the model. The flyer would contain information on what the homestead exemption program is, its eligibility criteria, instructions on how to apply, and relevant contact information, translated across different languages.  
@@ -1935,3 +1935,46 @@ kable(costs, align = "lrr", escape = FALSE, caption = "Program Outreach Costs by
 ```
 
 Another potential strategy is to reach out to community organizations to educate organization leaders and staff about the exemption program, who can then spread the word to their members and the immediate local community about it. This may include social service organization or religious organizations, such as the United Communities Houston Center or the City of Life church in South Philadelphia.
+
+
+The potential benefits of such outreach campaigns are vast. With an assumption that 10% of all homeowners we outreach to then successfully enroll into a homestead exemption, there can be up to $10,815,669 of savings across the homeowners. Majority of the homestead exemptions have been observed to receive the maximum eligible exemption. Comparing this to the total outreach cost for both strategies of $18,4132, the outreach can bring massive public benefit for a relatively small amount. Furthermore, this estimate is does not even include the huge unquantified benefits of increased housing stability for homeowners and their families. This reduces transience and encourages owner occupancy and long term residency, which supports consistent neighborhood networks, fostering more engaged and invested local communities. Owner-occupied homes are also more likely to be well-maintained as there is greater incentive to upkeep the property, which benefits neighborhood aesthetics and property values.
+
+# Comparison to a business-as-usual filtering approach
+```{r}
+filtered_properties_resonly <- filtered_properties_ex %>% mutate(is_residential = ifelse(zoning %in% c(
+  "RM1", "RM2", "RM3", "RM4",
+  "RSA1", "RSA2", "RSA3", "RSA4", "RSA5", "RSA6", 
+  "RSD1", "RSD2", "RSD3", 
+  "RM1|RSA5", "RSD1|RSD3", "RSA5|RSA5",
+  "RTA1", 
+  "CMX1", "CMX2", "CMX2.5", "CMX3", "CMX4", "CMX5", "IRMX"), 1, 0))
+
+ownerstoremove <- properties %>%
+  group_by(owner_1) %>%
+  summarise(property_count = n(), .groups = "drop") %>%
+  filter(str_detect(owner_1, " LLC | LLC|REAL ESTATE|ASSOC|HALABUGI INC|INVESTMENT|CHURCH|1229-1247 NORTH 27TH ST|KINGS HIGHWAY|VILLAGE|
+  ACQUISITION|PARTNERS|2101 WASHINGTON AVENUE LL|CHAI NUTS LP|REALTY|PROPERTIES|SPECIAL PEOPLE IN NORTHEA|COMPANY|SPECIAL|
+  LAND TRUST|TRUST|SIENA PLACE PLANNED COMMU|NORRIS SQUARE NEIGHBORHOO|201-59 NORTH EIGHTH|PREPARATOR|INVESTORS|
+  POINT BREEZE|WPRE III L P|NATIONAL|ARCH V-TEMPLE 16TH STREET|NORTH FOURTH STREET|BANKERS TRUST|COMMONS AT POINT BREEZE|
+  VETERAN|PRESERVATION|CONDOMINIUM|199 HUNTING PARK|APARTMENT|HOLDINGS| L P|COURT|SCHOOL|SERVICES|HABITAT FOR HUMANITY|COMMITTEE|BAPTIST|
+  COLLEGE|ACQUISITION|DELEO|AMTRAK|RENTALS|PARTICIPATION|SPRING ARTS|SEPTA|WASHINGTON SQUARE|FAIRMOUNT PARK|PARKING|
+  ARCH VI - TEMPLE|THE LOFTS|FUND |WHARTON COURT|GROUP|PENTECOST|RAD DIVERSIFIED REIT INC|COMMONS|LIMITED|PENNA |FIRST|CONTRACTOR|POINT BREEZE|BOOTSTRAP|RITTENHOUSE|
+  HABITAT FOR HUMANITY|DELAWARE RIVER|ENTERPRISES|COMMUNITY|FOUNDATION|BELL TELEPHONE CO|CENTER|PARTNERS|DEVELOPMENT|
+  VET AFFAIRS|FEDERAL|WORKFORCE|PENNDOT|INVESTORS|GEORGE WOODWARD INC|HARRISON INC|JDJ FUND|AFFORDABLE|INTERSTATE| INC |BIO LUCKY STAR INC|LEANNA INC|ELEBAH INC|BENGEMINI CONSULTANTS INC|BUILDERS|KOREAN COMMUNITY DEVELOPM|DEVELOPERS|
+  PORTFOLIO|RESIDENTIAL|PHILLY|PROJECT|MANAGEMENT|UMOJA INC|ASSN INC|DELAWARE VALLEY|ARCH VI - TEMPLE N GRATZ|SUPPLY|LOFTS|STREET|OFFICE| LP|CITY|VENTURES|
+  UNITED STATES OF AMERICA|PHILA|NON PROFIT|ASSO|HOUSE|NEIGHBORHOOD|PATH INC|UNIV|HOUSING|PROPERTY|COMMONWEALTH|CONRAIL|COMMERCE|
+  VENTURES|UNITED|CORRIDOR|SQUARE|CIVIC|ARMY|SALVATION|PENNSYLVANIA|ADMINISTRATOR|TOWNHOMES|CBM|RENTAL|AMERICA INC|ST FRANCIS INN|HOMEOWNERSHIP|
+  INSTITUTE|RESOURCES|CONSTRUCTION|L P|TRANSPORTATION|CSX|DREXEL|PASSYUNK|COLLEGE|WISTERCOR INC|SIENA PLACE PUD|EQUITY| CAPITAL|EXPORT|STRAWBERRY MANSION|7-ELEVEN|KEEP PLUGGING THREE INC|OUTSOURCE 2000 INC|CHAI 18 INC|Y E R A INC |WORLD|ADMIN|U S OF AMERICA|AUTHORITY|
+  SEPTA|APTS| LTD|CORP")) %>%
+  pull(owner_1)  # Extract the list of owners to remove
+
+# Step 2: Filter out properties owned by these owners
+filtered_properties <- filtered_properties_resonly %>%
+  filter(!owner_1 %in% ownerstoremove)
+
+residential_properties <- filtered_properties %>% filter(is_residential == 1)
+```
+It is then explroed how the use of the model compares to an alternative approach of a filtered list of properties. The properties are filtered to residential-only, non-corporation owned properties with the same address as its mailing address. This results in 333,623 properties, which would cost $143,668 to execute solely the direct mailing campaign. Using a machine learning model to identify properties to reach out to substantially narrows down the target number, allowing for huge cost-savings and an effective use of limited resources. The spatial analysis of false positives also allow for more targeted door-knocking to take place.
+
+
+# Biasness Check of Model
