@@ -65,7 +65,8 @@ library(stringr)
 library(car)
 library(data.table)
 library(leaflet)
-
+library(knitr)
+library(kableExtra)
 
 options(scipen = 999)
 root.dir = "https://raw.githubusercontent.com/urbanSpatial/Public-Policy-Analytics-Landing/master/DATA/"
@@ -254,7 +255,9 @@ census_tracts <- st_read("Data/phila_census1.gpkg")
 ```
 
 ```{r}
-census_tracts <- st_transform(census_tracts, 2272)
+census_tracts <- st_transform(census_tracts, 2272) %>% 
+  mutate(owner_occ_rate = (owner_hh / occupied_units)* 100)
+
 properties_tract <- st_join(properties_sf, census_tracts)
 
 # Create tract summary
@@ -1531,7 +1534,7 @@ Wide variation in participation rates across all home values, shown by the verti
 ```{r}
 #join to dataset
 # Extract column names for index 81 to 112
-selected_columns <- names(properties_tract)[c(1, 81:112)]
+selected_columns <- names(properties_tract)[c(1, 81:113)]
 # Perform the left join
 residential_properties <- residential_properties %>%
   left_join(
@@ -1727,6 +1730,71 @@ zoning_summary_chart
 # ggsave("outputs/homestead-exemption-zoning_summary_chart.png", zoning_summary_chart, width = 10, height = 6)
 ```
 
+```{r}
+permits <- read.csv("permits.csv")
+table(permits$permitdescription)
+table(permits$permittype)
+sum(permits$permitissuedate == "")
+
+library(lubridate)
+library(dplyr)
+
+
+permits_changeofuse <- permits %>% filter(typeofwork == "Change of Use")
+
+permit_types <- c("NEW CONSTRUCTION PERMIT", 
+                  "Residential Building Permit", 
+                  "Zoning Permit", 
+                  "ZONING PERMIT", 
+                  "ZONING/USE PERMIT", 
+                  "USE PERMIT")
+
+valid_typeofwork <- c("New Construction or Additions", 
+                      "New construction, addition, GFA change", 
+                      "Addition and/or Alteration", 
+                      "Addition and/or Alterations", 
+                      "ADD", 
+                      "ALTER", 
+                      "Alterations")
+
+permits_filtered <- permits %>%
+  mutate(issue_date = ymd_hms(permitissuedate)) %>% 
+ filter(issue_date >= as.POSIXct("2016-01-01T00:00:00Z", tz = "UTC") & 
+         permitdescription %in% permit_types & 
+         (
+           typeofwork %in% valid_typeofwork |
+           (typeofwork == "Change of Use" & str_detect(approvedscopeofwork, "Residential"))
+         )) %>%
+  mutate(filterresidential = case_when(
+    commercialorresidential == "Residential" ~ 1,
+    typeofwork == "Change of Use" & str_detect(approvedscopeofwork, "Residential") ~ 1,
+    TRUE ~ 0
+  )) %>%
+  filter(filterresidential == 1)
+
+permits_summary <- permits_filtered %>%
+  group_by(address, geocode_x, geocode_y) %>%
+  summarize(
+    has_permit = as.integer(n() > 0)
+  ) %>%
+  ungroup()
+
+properties_with_permits <- filtered_properties %>%
+  left_join(permits_summary, by = c("location" = "address")) %>%
+  mutate(has_permit = coalesce(has_permit, 0))
+
+properties_with_permits$has_permit <- as.factor(properties_with_permits$has_permit)
+
+ggplot(properties_with_permits, aes(x = has_permit, fill = as.factor(exemption))) +
+    geom_bar(position = "dodge") +
+    scale_fill_manual(values = colors, labels = c("No Exemption", "With Exemption")) +
+    labs(title = "Property has Residential Permit Issued in Last 10 Years", x = "New Permit", y = "Count", fill = "Homestead Exemption") +
+    theme_minimal(base_size = 14) +
+    theme(panel.grid.major = element_line(color = "grey90"),
+          panel.grid.minor = element_blank(),
+          legend.position = "bottom",
+         plot.title = element_text(vjust = 0.5))
+```
 
 # Modeling
 ```{r}
@@ -1814,4 +1882,56 @@ numericVars %>%
   labs(title = "Correlation across numeric variables")  # Set plot title
 ```
 
-SEE MODELLING_DRAFT.RMD
+# Modelling
+
+
+
+
+
+
+
+
+
+
+
+# Target Outreach
+
+
+
+
+
+
+
+
+
+
+
+
+# Outreach Strategies and Associated Costs
+Two main potential outreach strategies are proposed. The costs for each of these strategies were then estimated based on existing cost structure references.
+
+The first potential strategy is a direct mailing campaign, which involves sending flyers out to all properties identified as false positives by the model. The flyer would contain information on what the homestead exemption program is, its eligibility criteria, instructions on how to apply, and relevant contact information, translated across different languages.  
+
+The next potential strategy is a door-knocking campaign. This involves going door-to-door to identified properties and having canvassers knock on the doors, sharing with homeowners who respond about the homestead exemption program. This face-to-face interaction can highly effective in raising awareness about the program, how to apply to it, and directly address any queries or doubts that the homeowner may have about it. From July 2023 to June 2024, the City of Philadelphia conducted a door-knocking campaign under the Overdose Awareness Canvassing and Trusted Community Messenger Program. Door-knocking is proposed to be conducted for high potential areas with clusters of missed homestead exemption opportunities. This optimizes limited resources in travel time and costs between properties for door knocking. This campaign would therefore only target the 13,031 homes identified in the two clusters, Northeast and South Philadelphia, which have 6,669 and 6,362 target outreach homes respectively.
+
+```{r, message=FALSE, warning=FALSE}
+costs <- data.frame(
+  Category = c(
+    "Personnel", "Purchase Services", "Program Supplies", "Indirect Costs", "Total"
+  ),
+  `Direct Mailing\n(All: 77,317 homes)` = c(
+    2806, 726, 29678, 3321, 36532
+  ),
+  `Door-Knocking\n(High-Potential Clusters: 13,031 homes)` = c(
+    29840, 66816, 3798, 10045, 110499
+  )
+)
+
+costs[ ,2:3] <- lapply(costs[ ,2:3], dollar)
+
+kable(costs, align = "lrr", escape = FALSE, caption = "Program Outreach Costs by Strategy") %>%
+  kable_styling(full_width = FALSE, bootstrap_options = c("striped", "hover"))
+
+```
+
+Another potential strategy is to reach out to community organizations to educate organization leaders and staff about the exemption program, who can then spread the word to their members and the immediate local community about it. This may include social service organization or religious organizations, such as the United Communities Houston Center or the City of Life church in South Philadelphia.

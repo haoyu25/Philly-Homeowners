@@ -42,6 +42,7 @@ glimpse(properties_model)
 ```
 
 # Feature overview
+Relationships between the selected features were first examined.
 
 ## Continous Features
 ```{r}
@@ -66,7 +67,6 @@ data_continous <-properties_model %>%
 print(data_continous) 
 
 ```
-
 
 ## Categorical Features
 ```{r}
@@ -127,38 +127,7 @@ vars1<-numericVars%>%dplyr::select(bach_degree_rate,median_income,median_home_va
 ggpairs(vars1, upper = list(continuous = wrap("cor", size = 3)))
 ```
 
-
-```{r, include=FALSE}
-source("1_Package_Setup.R")
-
-# Making a nearest neighbor feature
-set.seed(717)
-theme_set(theme_bw())
-
-"%!in%" <- Negate("%in%")
-g <- glimpse
-
-nn_function <- function(measureFrom,measureTo,k) {
-  library(FNN)
-  nn <-   
-    FNN::get.knnx(measureTo, measureFrom, k)$nn.dist
-  output <-
-    as.data.frame(nn) %>%
-    rownames_to_column(var = "thisPoint") %>%
-    gather(points, point_distance, V1:ncol(.)) %>%
-    arrange(as.numeric(thisPoint)) %>%
-    group_by(thisPoint) %>%
-    summarize(pointDistance = mean(point_distance)) %>%
-    arrange(as.numeric(thisPoint)) %>% 
-    dplyr::select(-thisPoint) %>%
-    pull()
-  
-  return(output)  
-}
-```
-
-
-# TIDY MODELS VERSION
+The final variables were selected for the model as below.
 ```{r}
 variables <- c("geographic_ward", "same_address", 
                "is_deep", "owner_count",
@@ -172,23 +141,24 @@ variables <- c("geographic_ward", "same_address",
 ```
 
 ```{r}
-### Set up Ames Housing Data
+### Set up Dataset
 properties_model<- properties_model%>%
   mutate(property_ID = seq(1:n()))%>%
-  dplyr::select(all_of(variables), exemption,zip_code)
+  dplyr::select(all_of(variables), exemption, zip_code)
 
 ```
+
+The dataset was split into a training and test set, where the training set comprised 75% of the total properties. The split is stratified by zip code, roughly balancing the zip codes across both sets to ensure minimize unequal geographical representation across both the training and test set. The final test set of 25% of the total properties will be left untouched, and used to evaluate the model after tuning and training are complete.
 
 ```{r}
 ### Initial Split for Training and Test
 data_split <- initial_split(properties_model, strata = "zip_code", prop = 0.75)
 properties_train <- training(data_split)
 properties_test  <- testing(data_split)
-
 ```
 
+A Leave-One-Group-Out Cross-Validation (LOGOCV) strategy was then implemented within the training dataset, using geographic ward as the grouping variable. Each fold holds out one geographic ward as the validation set while the model is trained on data from all remaining wards. This process iterates across all wards, where each geographic ward serves as a validation fold once. By accounting for potential spatial autocorrelation, this method helps reduce overfitting and prevents data leakage that could arise from training and testing on geographically proximate observations.
 ```{r}
-
 ### Cross Validation
 ## LOGOCV on Neighborhood with group_vfold_cv()
 cv_splits_geo <- group_vfold_cv(properties_train,  
@@ -196,6 +166,7 @@ cv_splits_geo <- group_vfold_cv(properties_train,
 print(cv_splits_geo)
 ```
 
+Feature preprocessing is then conducted—categorical variables are one-hot encoded, predictors with zero variance are removed, and numeric predictors are standardized.
 ```{r}
 # Feature Creation
 model_rec <- recipe(exemption ~ ., data = properties_train)  %>%
@@ -205,11 +176,10 @@ model_rec <- recipe(exemption ~ ., data = properties_train)  %>%
   step_scale(all_numeric_predictors())
 ```
 
-
+An XGBoost was then defined with 200 trees, while the number of variables randomly sampled at each split and the minimum number of observation in a terminal node are tuned with with the help of a hyperparameter grid search.
 
 ```{r, include=FALSE}
 ## Model specifications
-
 XGB_plan <- boost_tree() %>%
   set_args(mtry  = tune()) %>%
   set_args(min_n = tune()) %>%
@@ -248,7 +218,7 @@ xgb_tuned <- xgb_wf %>%
                   metrics   = metrics)
 ```
 
-
+The grid search is conducted with the best model selected based on having the lowest Root Mean Squared Error.
 ```{r}
 ## metrics across grid
 collect_metrics(xgb_tuned)
@@ -269,6 +239,7 @@ xgb_val_fit_geo <- xgb_best_wf %>%
 
 ```
 
+This chosen model is run on the test set for evaluation.
 ```{r}
 # Pull best hyperparam preds from out-of-fold predictions
 xgb_best_OOF_preds <- collect_predictions(xgb_tuned) %>% 
@@ -291,11 +262,13 @@ collect_metrics(xgb_tuned) %>%
   theme_minimal()
 ```
 
+The threshold is set at 0.5, where any predictions with a probability of 0.5 or over are categorized as predicted to be eligible for the exemption.
 ```{r}
 xgb_val_pred_geo$exemption.pred <- as.factor(ifelse(xgb_val_pred_geo$.pred >= 0.5, "1", "0") )
 xgb_val_pred_geo$exemption<-as.factor(xgb_val_pred_geo$exemption)
 ```
 
+A confusion matrix of the model results was then produced. 
 ```{r}
 caret::confusionMatrix(xgb_val_pred_geo$exemption.pred, xgb_val_pred_geo$exemption, 
                        positive = "1")
