@@ -1884,14 +1884,325 @@ numericVars %>%
 
 # Modelling
 
+## Load required packages for modelling
+```{r, include=FALSE}
+#Package installs -------------------------------------------------------------
+load.fun <- function(x) { 
+  x <- as.character(x) 
+  if(isTRUE(x %in% .packages(all.available=TRUE))) { 
+    eval(parse(text=paste("require(", x, ")", sep=""))) 
+    print(paste(c(x, " : already installed; requiring"), collapse=''))
+  } else { 
+    #update.packages()
+    print(paste(c(x, " : not installed; installing"), collapse=''))
+    eval(parse(text=paste("install.packages('", x, "')", sep=""))) 
+    print(paste(c(x, " : installed and requiring"), collapse=''))
+    eval(parse(text=paste("require(", x, ")", sep=""))) 
+  } 
+} 
+
+########### Required Packages ###########
+packages = c("bayesplot", "lme4","RcppEigen",
+             "tidyverse", "tidyr", "AmesHousing", "broom", "caret", "dials", "doParallel", "e1071", "earth",
+             "ggrepel", "glmnet", "ipred", "klaR", "kknn", "pROC", "rpart", "randomForest",
+             "sessioninfo", "tidymodels","ranger", "recipes", "workflows", "themis","xgboost",
+             "sf", "nngeo", "mapview","data.table","ggplot2","corrr","rsample","parsnip","tidymodels")
+
+for(i in seq_along(packages)){
+  packge <- as.character(packages[i])
+  load.fun(packge)
+}
+
+session_info()
+# Color palette
+palette2 <- c("#e42524", "#00ADA9")
+palette5 <- c('#BF4146', '#E5A186', '#F1C8BB', '#B3CADB','#6683a9')
+
+```
+
+## Feature overview
+Relationships between the selected features were first examined.
+
+```{r}
+properties_model<-fread("properties_model.csv")
+glimpse(properties_model)
+```
+
+### Continous Features
+```{r}
+data_continous <-properties_model %>%
+    dplyr::select(exemption, 
+                  geographic_ward, 
+                  balance_rate,#balance_total,
+                  #avg_market_value,sd_market_value,perc_bdg_exempt,
+                  pct_foreign_born,overall_vacancy_rate,limited_english_rate,
+                  diversity_index,median_income,median_home_value,owner_occ_rate,owner_count
+                  ) %>%
+    gather(Variable, value, -exemption) %>%
+    ggplot() + 
+    geom_density(aes(value, color=as.factor(exemption)), fill = "transparent") + 
+    facet_wrap(~Variable, scales = "free") +
+    scale_color_manual(values = palette2) +
+    labs(title = "Feature associations with Exemption",
+         subtitle = "(continous features)")+ theme_minimal()+
+  theme(legend.position = "bottom") 
+
+print(data_continous) 
+
+```
+
+### Categorical Features
+```{r}
+data_categorical<-properties_model %>%
+    dplyr::select(exemption, 
+                  same_address,is_deep,large_area,
+                  rental_license,commercial_license
+                  ) %>%
+  
+    gather(Variable, value, -exemption) %>%
+    filter(complete.cases(.))%>%
+    count(Variable, value, exemption)%>%
+      ggplot(., aes(value, n, fill = as.factor(exemption))) +   
+        geom_bar(position = "dodge", stat="identity") +
+        facet_wrap(~Variable, scales="free")  +
+        scale_fill_manual(values = palette2) +
+        labs(x="Categories", y="Value",
+             title = "Feature associations with Exemption",
+             subtitle = "Categorical features") +
+  theme_minimal()+
+  theme(legend.position = "bottom",
+        axis.text.x = element_text(angle = 60, hjust = 1,size=6))+
+  scale_x_discrete(labels = function(x) str_trunc(x, 10)) 
+
+print(data_categorical)
+```
+
+### Correlation Matrix
+```{r}
+numericVars <- as.data.frame(properties_model) %>%
+  dplyr::select(exemption, 
+                
+                young_owner_rate,senior_owner_rate,family_hh_rate,
+                limited_english_rate, median_home_value, diversity_index,mortgage_burden_rate
+                ) %>%  
+  select_if(is.numeric) %>% 
+  na.omit() 
+
+correlation_matrix <- cor(numericVars)
 
 
+numericVars %>% 
+  correlate() %>% 
+  autoplot() +
+  geom_tile(aes(fill = r), color = "#e9e9e9") +
+  geom_text(aes(label = round(r,digits=2)), size = 3) +
+  scale_fill_gradient2(low =  "#00ADA9", mid = "white", high =  "#e42524",
+                       midpoint = 0, limits = c(-1, 1),
+                       breaks = seq(-1, 1, by = 0.2)) +
+  labs(title = "Correlation across numeric variables")  # Set plot title
+```
+
+The final variables were selected for the model as below.
+```{r}
+variables <- c("geographic_ward", "same_address", 
+               "is_deep", "owner_count",
+         "rental_license", "commercial_license","balance_rate", 
+         "avg_market_value", "sd_market_value", "has_recent_transfer", "latest_document_type",
+          "overall_vacancy_rate", "poverty_rate",
+         "young_owner_rate","senior_owner_rate","family_hh_rate",
+         "limited_english_rate", "median_home_value", "diversity_index",
+         "mortgage_burden_rate","owner_occ_rate")
+
+```
+
+```{r}
+### Set up Dataset
+properties_model<- properties_model%>%
+  mutate(property_ID = seq(1:n()))%>%
+  dplyr::select(all_of(variables), exemption, zip_code)
+
+```
+
+## Split Dataset
+
+The dataset was split into a training and test set, where the training set comprised 75% of the total properties. The split is stratified by zip code, roughly balancing the zip codes across both sets to ensure minimize unequal geographical representation across both the training and test set. The final test set of 25% of the total properties will be left untouched, and used to evaluate the model after tuning and training are complete.
+
+```{r}
+### Initial Split for Training and Test
+data_split <- initial_split(properties_model, strata = "zip_code", prop = 0.75)
+properties_train <- training(data_split)
+properties_test  <- testing(data_split)
+```
+
+A Leave-One-Group-Out Cross-Validation (LOGOCV) strategy was then implemented within the training dataset, using geographic ward as the grouping variable. Each fold holds out one geographic ward as the validation set while the model is trained on data from all remaining wards. This process iterates across all wards, where each geographic ward serves as a validation fold once. By accounting for potential spatial autocorrelation, this method helps reduce overfitting and prevents data leakage that could arise from training and testing on geographically proximate observations.
+```{r}
+### Cross Validation
+## LOGOCV on Neighborhood with group_vfold_cv()
+cv_splits_geo <- group_vfold_cv(properties_train,  
+                                group = "geographic_ward")
+print(cv_splits_geo)
+```
+
+Feature preprocessing is then conducted—categorical variables are one-hot encoded, predictors with zero variance are removed, and numeric predictors are standardized.
+```{r}
+# Feature Creation
+model_rec <- recipe(exemption ~ ., data = properties_train)  %>%
+  step_dummy(all_nominal_predictors()) %>%  
+  step_zv(all_predictors()) %>%
+  step_center(all_numeric_predictors()) %>%
+  step_scale(all_numeric_predictors())
+```
+
+## Build Model
+
+An XGBoost was then defined with 200 trees, while the number of variables randomly sampled at each split and the minimum number of observation in a terminal node are tuned with with the help of a hyperparameter grid search.
+
+```{r, include=FALSE}
+## Model specifications
+XGB_plan <- boost_tree() %>%
+  set_args(mtry  = tune()) %>%
+  set_args(min_n = tune()) %>%
+  #set_args(learn_rate = tune())%>%
+  #set_args(tree_depth = tune())%>%
+  set_args(trees = 200) %>% 
+  set_engine("xgboost") %>% 
+  set_mode("regression")
 
 
+# Hyperparameter grid for glmnet (penalization)
+xgb_grid <- expand.grid(
+  mtry = c(3, 7,10
+           ),  
+  min_n = c(1, 5, 10
+            )
+  #, learn_rate = c(0.01, 0.3), 
+  #tree_depth = c(3, 5, 7, 10)  
+)
+
+# create workflow
+xgb_wf <-
+  workflow() %>% 
+  add_recipe(model_rec) %>% 
+  add_model(XGB_plan)
 
 
+# fit model to workflow and calculate metrics
+control <- control_resamples(save_pred = TRUE, verbose = TRUE)
+metrics <- metric_set(rmse, rsq, mape, smape)
+xgb_tuned <- xgb_wf %>%
+  tune::tune_grid(.,
+                  resamples = cv_splits_geo,
+                  grid      = xgb_grid,
+                  control   = control,
+                  metrics   = metrics)
+```
+
+The grid search is conducted with the best model selected based on having the lowest Root Mean Squared Error.
+```{r}
+## metrics across grid
+collect_metrics(xgb_tuned)
+
+## 'Best' by some metric and margin
+show_best(xgb_tuned, metric = "rsq", n = 15)
+
+xgb_best_params    <- select_best(xgb_tuned, metric = "rmse"   )
+
+xgb_best_wf    <- finalize_workflow(xgb_wf, xgb_best_params)
+
+# last_fit() emulates the process where, after determining the best model, the final fit on the entire training set is needed and is then evaluated on the test set.
+
+xgb_val_fit_geo <- xgb_best_wf %>% 
+  last_fit(split     = data_split,
+           control   = control,
+           metrics   = metrics)
+
+```
+
+This chosen model is run on the test set for evaluation.
+```{r}
+# Pull best hyperparam preds from out-of-fold predictions
+xgb_best_OOF_preds <- collect_predictions(xgb_tuned) %>% 
+  filter(mtry  == xgb_best_params$mtry[1] & min_n == xgb_best_params$min_n[1])
+
+# collect validation set predictions from last_fit model
+xgb_val_pred_geo    <- collect_predictions(xgb_val_fit_geo)
+```
+
+```{r}
+collect_metrics(xgb_tuned) %>%
+  filter(.metric == "rmse") %>%
+  ggplot(aes(x = factor(mtry), y = mean, fill = factor(min_n))) +
+  geom_bar(stat = "identity", position = "dodge") +
+  labs(title = "RMSE Across Different Hyperparameter Combinations",
+       x = "mtry",
+       y = "Mean RMSE",
+       fill = "min_n") +
+  theme_minimal()
+```
+
+The threshold is set at 0.5, where any predictions with a probability of 0.5 or over are categorized as predicted to be eligible for the exemption. This has 
+```{r}
+xgb_val_pred_geo$exemption.pred <- as.factor(ifelse(xgb_val_pred_geo$.pred >= 0.5, "1", "0") )
+xgb_val_pred_geo$exemption<-as.factor(xgb_val_pred_geo$exemption)
+```
+
+A confusion matrix of the model results was then produced. Breaking it down, 205,188 positives are true positives, meaning they are properties with an existing homestead exemption and were accurately predicted to be eligible for the exemption. 34,598 properties were wrongly predicted to not have an exemption although they were already enrolled in one. This false negative rate should be minimized. 152,373 properties were accurately predicted to not have an existing exemption. One can observe there are 77,317 false positives. This is the target group of interest, in which our model predicts that they should have an exemption, meaning they should be eligible for one, yet are not currently enrolled.
+```{r}
+caret::confusionMatrix(xgb_val_pred_geo$exemption.pred, xgb_val_pred_geo$exemption, 
+                       positive = "1")
+```
+
+```{r}
+library(data.table)
+fwrite(xgb_val_pred_geo, "xgb_val_pred_geo.csv")
+```
+
+```{r}
+library(plotROC)
+
+ggplot(xgb_val_pred_geo, aes(d = as.numeric(exemption), m = .pred)) +
+  geom_roc(n.cuts = 50, labels = FALSE, colour = "#BF4146") +
+  style_roc(theme = theme_grey) +
+  geom_abline(slope = 1, intercept = 0, size = 1, color = '#6683a9') +
+  labs(title = "ROC Curve") +
+  theme_minimal()
+```
 
 
+The density distribution of the predicted probabilities were then plotted. 
+```{r}
+
+ggplot(xgb_val_pred_geo, aes(x = .pred, fill = as.factor(exemption))) + 
+  geom_density() +
+  facet_grid(exemption ~ .) +
+  scale_fill_manual(values = palette2) +
+  labs(x = "Probabilities", y = "Density of probabilities",
+       title = "Distribution of predicted probabilities by observed outcome",
+             subtitle = "No gentrification = 0, Gentrification = 1") +
+  theme_minimal() +
+  theme(legend.position = "none") 
+
+```
+
+## Predict on Whole Dataset
+
+```{r}
+properties_model<-fread("properties_model.csv")
+xgb_full_pred <- xgb_best_wf %>% 
+  fit(data = properties_model) %>%
+  predict(new_data = properties_model) %>%
+  bind_cols(properties_model)
+
+```
+
+```{r}
+xgb_full_pred <- xgb_full_pred %>%
+  mutate(exemption.pred = ifelse(.pred >= 0.5, "1", "0"))
+```
+
+```{r}
+fwrite(xgb_full_pred, "xgb_full_pred.csv")
+```
 
 
 # Target Outreach
