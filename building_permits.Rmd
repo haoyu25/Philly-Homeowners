@@ -1,0 +1,66 @@
+
+```{r}
+permits <- read.csv("permits.csv")
+table(permits$permitdescription)
+table(permits$permittype)
+sum(permits$permitissuedate == "")
+
+library(lubridate)
+library(dplyr)
+
+
+permits_changeofuse <- permits %>% filter(typeofwork == "Change of Use")
+
+permit_types <- c("NEW CONSTRUCTION PERMIT", 
+                  "Residential Building Permit", 
+                  "Zoning Permit", 
+                  "ZONING PERMIT", 
+                  "ZONING/USE PERMIT", 
+                  "USE PERMIT")
+
+valid_typeofwork <- c("New Construction or Additions", 
+                      "New construction, addition, GFA change", 
+                      "Addition and/or Alteration", 
+                      "Addition and/or Alterations", 
+                      "ADD", 
+                      "ALTER", 
+                      "Alterations")
+
+permits_filtered <- permits %>%
+  mutate(issue_date = ymd_hms(permitissuedate)) %>% 
+ filter(issue_date >= as.POSIXct("2016-01-01T00:00:00Z", tz = "UTC") & 
+         permitdescription %in% permit_types & 
+         (
+           typeofwork %in% valid_typeofwork |
+           (typeofwork == "Change of Use" & str_detect(approvedscopeofwork, "Residential"))
+         )) %>%
+  mutate(filterresidential = case_when(
+    commercialorresidential == "Residential" ~ 1,
+    typeofwork == "Change of Use" & str_detect(approvedscopeofwork, "Residential") ~ 1,
+    TRUE ~ 0
+  )) %>%
+  filter(filterresidential == 1)
+
+permits_summary <- permits_filtered %>%
+  group_by(address, geocode_x, geocode_y) %>%
+  summarize(
+    has_permit = as.integer(n() > 0)
+  ) %>%
+  ungroup()
+
+properties_with_permits <- filtered_properties %>%
+  left_join(permits_summary, by = c("location" = "address")) %>%
+  mutate(has_permit = coalesce(has_permit, 0))
+
+properties_with_permits$has_permit <- as.factor(properties_with_permits$has_permit)
+
+ggplot(properties_with_permits, aes(x = has_permit, fill = as.factor(exemption))) +
+    geom_bar(position = "dodge") +
+    scale_fill_manual(values = colors, labels = c("No Exemption", "With Exemption")) +
+    labs(title = "Property has Residential Permit Issued in Last 10 Years", x = "New Permit", y = "Count", fill = "Homestead Exemption") +
+    theme_minimal(base_size = 14) +
+    theme(panel.grid.major = element_line(color = "grey90"),
+          panel.grid.minor = element_blank(),
+          legend.position = "bottom",
+         plot.title = element_text(vjust = 0.5))
+```
