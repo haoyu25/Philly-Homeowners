@@ -2184,8 +2184,6 @@ ggplot(xgb_val_pred_geo, aes(x = .pred, fill = as.factor(exemption))) +
 
 ```
 
-## Predict on Whole Dataset
-
 ```{r}
 properties_model<-fread("properties_model.csv")
 xgb_full_pred <- xgb_best_wf %>% 
