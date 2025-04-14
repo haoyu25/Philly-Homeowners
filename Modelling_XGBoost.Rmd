@@ -408,9 +408,14 @@ properties_model_2<-properties_full_pred_sf
 ```
 
 ```{r}
+fwrite(properties_model_2, "properties_model.csv")
+```
+
+```{r}
 properties_model_2<- properties_model_2%>%
   mutate(property_ID = seq(1:n()))%>%
-  dplyr::select(all_of(variables2), exemption, zip_code)
+  dplyr::select(all_of(variables2), exemption, zip_code)%>%
+  st_drop_geometry()
 
 ```
 
@@ -480,6 +485,8 @@ xgb_tuned <- xgb_wf %>%
                   control   = control,
                   metrics   = metrics)
 ```
+
+
 
 The grid search is conducted with the best model selected based on having the lowest Root Mean Squared Error.
 ```{r}
@@ -570,19 +577,73 @@ ggplot(xgb_val_pred_geo, aes(x = .pred, fill = as.factor(exemption))) +
 ```
 
 ```{r}
-properties_model<-fread("properties_model.csv")
-xgb_full_pred <- xgb_best_wf %>% 
-  fit(data = properties_model) %>%
-  predict(new_data = properties_model) %>%
-  bind_cols(properties_model)
+properties_model_2<-properties_full_pred_sf%>%
+  rename(.pred1=.pred,exemption.pred1=exemption.pred,residual1=residual)
+```
 
+```{r}
+xgb_full_pred <- xgb_best_wf %>% 
+  fit(data = properties_model_2) %>%
+  predict(new_data = properties_model_2) %>%
+  bind_cols(properties_model_2)
 ```
 
 ```{r}
 xgb_full_pred <- xgb_full_pred %>%
-  mutate(exemption.pred = ifelse(.pred >= 0.5, "1", "0"))
+  mutate(exemption.pred2 = ifelse(.pred >= 0.5, "1", "0"))%>%
+  rename(.pred2=.pred)
 ```
 
 ```{r}
+
+ggplot(xgb_full_pred, aes(x = .pred2, fill = as.factor(exemption))) + 
+  geom_density() +
+  facet_grid(exemption ~ .) +
+  scale_fill_manual(values = palette2) +
+  labs(x = "Probabilities", y = "Density of probabilities",
+       title = "Distribution of predicted probabilities by observed outcome",
+             subtitle = "No gentrification = 0, Gentrification = 1") +
+  theme_minimal() +
+  theme(legend.position = "none") 
+
+```
+
+```{r}
+get_fnr <- function(pred, truth) {
+  cm <- table(truth = truth, pred = pred)
+  fn <- cm["1", "0"]
+  tp <- cm["1", "1"]
+  fnr <- fn / (fn + tp)
+  return(fnr)
+}
+
+fnr_model1 <- get_fnr(xgb_full_pred$exemption.pred1, xgb_full_pred$exemption)
+fnr_model2 <- get_fnr(xgb_full_pred$exemption.pred2, xgb_full_pred$exemption)
+
+cat("Model1 FNR：", fnr_model1, "\n")
+cat("Model2 FNR：", fnr_model2, "\n")
+```
+
+```{r}
+xgb_full_pred_long <- xgb_full_pred %>%
+  pivot_longer(cols = c(.pred1, .pred2),
+               names_to = "model",
+               values_to = "pred_prob")
+
+ggplot(xgb_full_pred_long, aes(x = pred_prob, fill = as.factor(exemption))) + 
+  geom_density(alpha = 0.6) +
+  facet_grid(exemption ~ model) +
+  scale_fill_manual(values = palette2) +
+  labs(x = "Predicted Probability", y = "Density",
+       title = "Probability Distribution by Model and Outcome",
+       subtitle = "Model A (.pred1) vs Model B (.pred2)") +
+  theme_minimal() +
+  theme(legend.position = "none")
+```
+
+
+
+```{r}
 fwrite(xgb_full_pred, "xgb_full_pred.csv")
+
 ```
