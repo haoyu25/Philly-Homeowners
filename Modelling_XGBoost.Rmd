@@ -37,7 +37,7 @@ palette5 <- c('#BF4146', '#E5A186', '#F1C8BB', '#B3CADB','#6683a9')
 # Combining all datasets 
 ```{r}
 properties_model<-fread("properties_model.csv")
-
+permits <- fread("Data/permits.csv")
 glimpse(properties_model)
 ```
 
@@ -323,3 +323,327 @@ xgb_full_pred <- xgb_full_pred %>%
 fwrite(xgb_full_pred, "xgb_full_pred.csv")
 ```
 
+# Spacial correlation
+
+```{r}
+properties <- fread("data/opa_properties_public.csv")
+```
+
+
+```{r}
+properties_model <- properties_model %>%
+  left_join(properties %>% dplyr::select(objectid, shape), by = "objectid")
+properties_model_sf <- st_as_sf(properties_model, wkt = "shape", crs = 2272)
+```
+
+
+```{r}
+xgb_full_pred <- fread("xgb_full_pred.csv")
+```
+
+```{r}
+xgb_full_pred <- xgb_full_pred %>%
+  left_join(properties %>% dplyr::select(objectid, shape), by = "objectid")
+properties_full_pred_sf <- st_as_sf(xgb_full_pred, wkt = "shape", crs = 2272)
+```
+
+## KNN
+
+```{r}
+library(spdep)
+knn_nb <- knn2nb(knearneigh(properties_full_pred_sf, k = 4, use_kd_tree = FALSE))
+
+```
+
+```{r}
+library(spdep)
+exemption_data <- as.factor(properties_full_pred_sf$exemption)
+join_count_test <- joincount.test(exemption_data, listw = nb2listw(knn_nb, style = "B"))
+print(join_count_test)
+```
+
+The Join Count Test reveals significant spatial clustering for both properties with and without the homestead exemption. For properties without the exemption (coded as 0), the number of same-value neighbors is significantly higher than expected under random distribution (Z = 74.97, p < 2.2e-16). Similarly, properties with the exemption (coded as 1) also demonstrate strong spatial clustering (Z = 77.48, p < 2.2e-16). These results indicate that exemption status is not randomly distributed across space, but rather exhibits clear spatial dependence. This supports the need to incorporate spatial components into further modeling, such as spatial lag variables or spatial error terms.
+
+
+## global Morans' I
+
+```{r}
+properties_full_pred_sf$residual <- properties_full_pred_sf$exemption- properties_full_pred_sf$.pred
+```
+
+
+```{r}
+moran_test <- moran.test(properties_full_pred_sf$residual, listw = nb2listw(knn_nb))
+print(moran_test) 
+```
+
+We conducted a Moran’s I test to examine spatial autocorrelation in the residuals of our model predicting homestead exemption status. The results indicate a statistically significant positive spatial autocorrelation (Moran’s I = 0.0215, p < 0.0001). This suggests that nearby properties tend to have similar residual values, implying that the model may be missing spatially structured predictors. To improve model performance, spatial features such as coordinates or spatial lags (e.g., the share of neighboring properties with exemptions) could be considered.
+
+## add spatial lag
+
+```{r}
+library(spdep)
+lw <- nb2listw(knn_nb, style = "W") 
+properties_full_pred_sf$lag_exemption <- lag.listw(lw, properties_full_pred_sf$exemption)
+```
+
+## Model2
+
+```{r}
+variables2 <- c("geographic_ward", "same_address", 
+               "is_deep", "owner_count",
+         "rental_license", "commercial_license","balance_rate", 
+         "avg_market_value", "sd_market_value", "has_recent_transfer", "latest_document_type",
+          "overall_vacancy_rate", "poverty_rate",
+         "young_owner_rate","senior_owner_rate","family_hh_rate",
+         "limited_english_rate", "median_home_value", "diversity_index",
+         "mortgage_burden_rate","owner_occ_rate"
+         ,"lag_exemption","lat_4326","lon_4326")
+
+```
+
+```{r}
+### Set up Dataset
+properties_model_2<-properties_full_pred_sf
+```
+
+```{r}
+fwrite(properties_model_2, "properties_model.csv")
+```
+
+```{r}
+properties_model_2<- properties_model_2%>%
+  mutate(property_ID = seq(1:n()))%>%
+  dplyr::select(all_of(variables2), exemption, zip_code)%>%
+  st_drop_geometry()
+
+```
+
+```{r}
+### Initial Split for Training and Test
+data_split <- initial_split(properties_model_2, strata = "zip_code", prop = 0.75)
+properties_train <- training(data_split)
+properties_test  <- testing(data_split)
+```
+
+```{r}
+### Cross Validation
+## LOGOCV on Neighborhood with group_vfold_cv()
+cv_splits_geo <- group_vfold_cv(properties_train,  
+                                group = "geographic_ward")
+print(cv_splits_geo)
+```
+
+Feature preprocessing is then conducted—categorical variables are one-hot encoded, predictors with zero variance are removed, and numeric predictors are standardized.
+```{r}
+# Feature Creation
+model_rec <- recipe(exemption ~ ., data = properties_train)  %>%
+  step_dummy(all_nominal_predictors()) %>%  
+  step_zv(all_predictors()) %>%
+  step_center(all_numeric_predictors()) %>%
+  step_scale(all_numeric_predictors())
+```
+
+An XGBoost was then defined with 200 trees, while the number of variables randomly sampled at each split and the minimum number of observation in a terminal node are tuned with with the help of a hyperparameter grid search.
+
+```{r, include=FALSE}
+## Model specifications
+XGB_plan <- boost_tree() %>%
+  set_args(mtry  = tune()) %>%
+  set_args(min_n = tune()) %>%
+  #set_args(learn_rate = tune())%>%
+  #set_args(tree_depth = tune())%>%
+  set_args(trees = 200) %>% 
+  set_engine("xgboost") %>% 
+  set_mode("regression")
+
+
+# Hyperparameter grid for glmnet (penalization)
+xgb_grid <- expand.grid(
+  mtry = c(3, 7,10
+           ),  
+  min_n = c(1, 5, 10
+            )
+  #, learn_rate = c(0.01, 0.3), 
+  #tree_depth = c(3, 5, 7, 10)  
+)
+
+# create workflow
+xgb_wf <-
+  workflow() %>% 
+  add_recipe(model_rec) %>% 
+  add_model(XGB_plan)
+
+
+# fit model to workflow and calculate metrics
+control <- control_resamples(save_pred = TRUE, verbose = TRUE)
+metrics <- metric_set(rmse, rsq, mape, smape)
+xgb_tuned <- xgb_wf %>%
+  tune::tune_grid(.,
+                  resamples = cv_splits_geo,
+                  grid      = xgb_grid,
+                  control   = control,
+                  metrics   = metrics)
+```
+
+
+
+The grid search is conducted with the best model selected based on having the lowest Root Mean Squared Error.
+```{r}
+## metrics across grid
+collect_metrics(xgb_tuned)
+
+## 'Best' by some metric and margin
+show_best(xgb_tuned, metric = "rsq", n = 15)
+
+xgb_best_params    <- select_best(xgb_tuned, metric = "rmse"   )
+
+xgb_best_wf    <- finalize_workflow(xgb_wf, xgb_best_params)
+
+# last_fit() emulates the process where, after determining the best model, the final fit on the entire training set is needed and is then evaluated on the test set.
+
+xgb_val_fit_geo <- xgb_best_wf %>% 
+  last_fit(split     = data_split,
+           control   = control,
+           metrics   = metrics)
+
+```
+
+This chosen model is run on the test set for evaluation.
+```{r}
+# Pull best hyperparam preds from out-of-fold predictions
+xgb_best_OOF_preds <- collect_predictions(xgb_tuned) %>% 
+  filter(mtry  == xgb_best_params$mtry[1] & min_n == xgb_best_params$min_n[1])
+
+# collect validation set predictions from last_fit model
+xgb_val_pred_geo    <- collect_predictions(xgb_val_fit_geo)
+```
+
+
+```{r}
+collect_metrics(xgb_tuned) %>%
+  filter(.metric == "rmse") %>%
+  ggplot(aes(x = factor(mtry), y = mean, fill = factor(min_n))) +
+  geom_bar(stat = "identity", position = "dodge") +
+  labs(title = "RMSE Across Different Hyperparameter Combinations",
+       x = "mtry",
+       y = "Mean RMSE",
+       fill = "min_n") +
+  theme_minimal()
+```
+
+The threshold is set at 0.5, where any predictions with a probability of 0.5 or over are categorized as predicted to be eligible for the exemption. This has 
+```{r}
+xgb_val_pred_geo$exemption.pred <- as.factor(ifelse(xgb_val_pred_geo$.pred >= 0.5, "1", "0") )
+xgb_val_pred_geo$exemption<-as.factor(xgb_val_pred_geo$exemption)
+```
+
+A confusion matrix of the model results was then produced. Breaking it down, 205,188 positives are true positives, meaning they are properties with an existing homestead exemption and were accurately predicted to be eligible for the exemption. 34,598 properties were wrongly predicted to not have an exemption although they were already enrolled in one. This false negative rate should be minimized. 152,373 properties were accurately predicted to not have an existing exemption. One can observe there are 77,317 false positives. This is the target group of interest, in which our model predicts that they should have an exemption, meaning they should be eligible for one, yet are not currently enrolled.
+```{r}
+caret::confusionMatrix(xgb_val_pred_geo$exemption.pred, xgb_val_pred_geo$exemption, 
+                       positive = "1")
+```
+
+```{r}
+library(data.table)
+fwrite(xgb_val_pred_geo, "xgb_val_pred_geo.csv")
+```
+
+```{r}
+library(plotROC)
+
+ggplot(xgb_val_pred_geo, aes(d = as.numeric(exemption), m = .pred)) +
+  geom_roc(n.cuts = 50, labels = FALSE, colour = "#BF4146") +
+  style_roc(theme = theme_grey) +
+  geom_abline(slope = 1, intercept = 0, size = 1, color = '#6683a9') +
+  labs(title = "ROC Curve") +
+  theme_minimal()
+```
+
+
+The density distribution of the predicted probabilities were then plotted. 
+```{r}
+
+ggplot(xgb_val_pred_geo, aes(x = .pred, fill = as.factor(exemption))) + 
+  geom_density() +
+  facet_grid(exemption ~ .) +
+  scale_fill_manual(values = palette2) +
+  labs(x = "Probabilities", y = "Density of probabilities",
+       title = "Distribution of predicted probabilities by observed outcome",
+             subtitle = "No gentrification = 0, Gentrification = 1") +
+  theme_minimal() +
+  theme(legend.position = "none") 
+
+```
+
+```{r}
+properties_model_2<-properties_full_pred_sf%>%
+  rename(.pred1=.pred,exemption.pred1=exemption.pred,residual1=residual)
+```
+
+```{r}
+xgb_full_pred <- xgb_best_wf %>% 
+  fit(data = properties_model_2) %>%
+  predict(new_data = properties_model_2) %>%
+  bind_cols(properties_model_2)
+```
+
+```{r}
+xgb_full_pred <- xgb_full_pred %>%
+  mutate(exemption.pred2 = ifelse(.pred >= 0.5, "1", "0"))%>%
+  rename(.pred2=.pred)
+```
+
+```{r}
+
+ggplot(xgb_full_pred, aes(x = .pred2, fill = as.factor(exemption))) + 
+  geom_density() +
+  facet_grid(exemption ~ .) +
+  scale_fill_manual(values = palette2) +
+  labs(x = "Probabilities", y = "Density of probabilities",
+       title = "Distribution of predicted probabilities by observed outcome",
+             subtitle = "No gentrification = 0, Gentrification = 1") +
+  theme_minimal() +
+  theme(legend.position = "none") 
+
+```
+
+```{r}
+get_fnr <- function(pred, truth) {
+  cm <- table(truth = truth, pred = pred)
+  fn <- cm["1", "0"]
+  tp <- cm["1", "1"]
+  fnr <- fn / (fn + tp)
+  return(fnr)
+}
+
+fnr_model1 <- get_fnr(xgb_full_pred$exemption.pred1, xgb_full_pred$exemption)
+fnr_model2 <- get_fnr(xgb_full_pred$exemption.pred2, xgb_full_pred$exemption)
+
+cat("Model1 FNR：", fnr_model1, "\n")
+cat("Model2 FNR：", fnr_model2, "\n")
+```
+
+```{r}
+xgb_full_pred_long <- xgb_full_pred %>%
+  pivot_longer(cols = c(.pred1, .pred2),
+               names_to = "model",
+               values_to = "pred_prob")
+
+ggplot(xgb_full_pred_long, aes(x = pred_prob, fill = as.factor(exemption))) + 
+  geom_density(alpha = 0.6) +
+  facet_grid(exemption ~ model) +
+  scale_fill_manual(values = palette2) +
+  labs(x = "Predicted Probability", y = "Density",
+       title = "Probability Distribution by Model and Outcome",
+       subtitle = "Model A (.pred1) vs Model B (.pred2)") +
+  theme_minimal() +
+  theme(legend.position = "none")
+```
+
+
+
+```{r}
+fwrite(xgb_full_pred, "xgb_full_pred.csv")
+
+```
