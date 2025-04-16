@@ -412,6 +412,11 @@ fwrite(properties_model_2, "properties_model.csv")
 ```
 
 ```{r}
+properties_model_2<-fread("properties_model.csv")
+```
+
+
+```{r}
 properties_model_2<- properties_model_2%>%
   mutate(property_ID = seq(1:n()))%>%
   dplyr::select(all_of(variables2), exemption, zip_code)%>%
@@ -460,9 +465,11 @@ XGB_plan <- boost_tree() %>%
 
 # Hyperparameter grid for glmnet (penalization)
 xgb_grid <- expand.grid(
-  mtry = c(3, 7,10
+  mtry = c(3#, 7,10
            ),  
-  min_n = c(1, 5, 10
+  min_n = c(#1, 
+            5
+            #,10
             )
   #, learn_rate = c(0.01, 0.3), 
   #tree_depth = c(3, 5, 7, 10)  
@@ -531,6 +538,43 @@ collect_metrics(xgb_tuned) %>%
        fill = "min_n") +
   theme_minimal()
 ```
+
+```{r}
+xgb_final_wf <- finalize_workflow(xgb_wf, xgb_best_params)
+# 拟合最终模型以提取变量重要性
+xgb_final_fit <- fit(xgb_final_wf, data = properties_train)
+
+# 提取 parsnip 内部的 xgboost 模型
+xgb_model <- extract_fit_parsnip(xgb_final_fit)$fit
+
+# 提取变量重要性
+xgb_imp <- xgboost::xgb.importance(model = xgb_model)
+```
+
+```{r}
+# 查看前几项变量重要性（Gain 值越高越重要）
+xgb_imp_sorted <- xgb_imp %>% 
+  arrange(desc(Gain))
+
+# 打印所有变量及对应 Gain 值
+print(xgb_imp_sorted)
+
+# 可视化前 20 个变量的影响力
+xgboost::xgb.plot.importance(xgb_imp, top_n = 80, main = "Top 80 Most Influential Variables")
+
+xgb_imp <- xgboost::xgb.importance(model = xgb_model)
+
+# 加一列累计贡献
+xgb_imp <- xgb_imp %>%
+  arrange(desc(Gain)) %>%
+  mutate(cum_gain = cumsum(Gain) / sum(Gain))
+
+# 选出贡献占比前90%的变量
+important_vars <- xgb_imp %>% filter(cum_gain <= 0.95)
+
+print(important_vars)
+```
+
 
 The threshold is set at 0.5, where any predictions with a probability of 0.5 or over are categorized as predicted to be eligible for the exemption. This has 
 ```{r}
@@ -642,8 +686,22 @@ ggplot(xgb_full_pred_long, aes(x = pred_prob, fill = as.factor(exemption))) +
 ```
 
 
-
 ```{r}
 fwrite(xgb_full_pred, "xgb_full_pred.csv")
+```
+
+
+## Model3
+
+```{r}
+variables3 <- c("geographic_ward", "same_address", 
+               "is_deep", "owner_count",
+         "rental_license", "commercial_license","balance_rate", 
+         "avg_market_value", "sd_market_value", "has_recent_transfer", "latest_document_type",
+          "overall_vacancy_rate", "poverty_rate",
+         "young_owner_rate","senior_owner_rate","family_hh_rate",
+         "limited_english_rate", "median_home_value", "diversity_index",
+         "mortgage_burden_rate","owner_occ_rate"
+         ,"lag_exemption","lat_4326","lon_4326")
 
 ```

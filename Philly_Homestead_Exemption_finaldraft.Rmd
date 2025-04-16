@@ -1,0 +1,431 @@
+---
+title: "Philly_Homestead_Exemption_Final"
+author: "Claudia Low, Haoyu Zhu, Rachel Midgett, Wenjun Zhu"
+date: "2025-04-15"
+output:
+  rmdformats::material:
+    code_download: true
+    toc_float: true
+    highlight: zenburn 
+    font: "Lato"    
+---
+
+```{r setup, include=FALSE}
+
+knitr::opts_chunk$set(echo = FALSE, message = FALSE, warning = FALSE, results='hide', cache = TRUE)
+
+library(tidycensus)
+library(tidyverse)
+library(dplyr)
+library(sf)
+library(spdep)
+library(caret)
+library(ckanr)
+library(FNN)
+library(grid)
+library(gridExtra)
+library(ggcorrplot) 
+library(corrr)    
+library(kableExtra)
+library(jtools)   
+library(ggstance)
+library(ggpubr) 
+library(broom.mixed)
+library(RColorBrewer)
+library(dplyr)
+library(ggplot2)
+library(RColorBrewer)
+library(corrr)
+library(classInt)
+library(stargazer)
+library(RSocrata)
+library(kableExtra)
+library(caret)
+library(knitr) 
+library(pscl)
+library(plotROC)
+library(pROC)
+library(lubridate)
+library(stargazer)
+library(caret)
+library(knitr) 
+library(pscl)
+library(plotROC)
+library(pROC)
+library(scales)
+library(stringr)
+library(car)
+library(data.table)
+library(leaflet)
+library(knitr)
+library(kableExtra)
+
+options(scipen = 999)
+root.dir = "https://raw.githubusercontent.com/urbanSpatial/Public-Policy-Analytics-Landing/master/DATA/"
+source("https://raw.githubusercontent.com/urbanSpatial/Public-Policy-Analytics-Landing/master/functions.r")
+
+# Inflation adjust
+inflationAdjust2017 <- 1.0213
+inflationAdjust2018 <- 1.0244
+
+# Set up theme and options
+colors2 <- c("0" = "#e42524", "1" = "#00ADA9")
+colors6 <- c("#e42524", "#ea7357",  "#f0b48b", "#96d2c7", "#41c3b4", "#00ADA9")
+
+map_theme <- theme_minimal() +
+  theme(
+    axis.text = element_blank(),
+    axis.title = element_blank(),
+    panel.grid = element_blank()
+  )
+
+options(tigris_use_cache = TRUE)
+options(scipen = 999)
+```
+
+# Introduction
+
+This report provides a detailed workflow of the project on Homestead Tax Exemption entitlement assisstance outreach, for the City of Philadelphia Office of Philly Stat 360 and Office of Information Technology. The aim of the project is design an algorithm-driven outreach campaign that can cost effectively identify homeowners who are likely to be eligible for the [Homestead Tax Exemption](https://www.phila.gov/services/payments-assistance-taxes/taxes/property-and-real-estate-taxes/get-real-estate-tax-relief/get-the-homestead-exemption/) but are not participating in the program. The project aims to allow our clients to understand where these properties are located, potential outreach strategies, and the associated costs and benefits.
+
+These relevant properties who are identified as most likely eligible for the Homestead Exemption but not taking up the program,  are also thought to be more likely to be subject to “tangled titles,” or family-rental arrangements that require an affidavit to waive need for a rental license.
+
+## Background on Property Tax in Philadelphia
+Property tax in Philadelphia is 1.3998% of the property value, as assessed by the Office of Property Assessment,for the 2025 taxx year. This is made up of 0.6159% (City of Philadelphia) and 0.7839% (School District)
+The taxes are due March 31st yearly.
+
+## Background on Homestead Exemption
+The Homestead Exemption reduces the taxable portion of a homeowner's property assessment by up to $100,000, saving up to $1,399 on real estate taxes annually. The bill signed aimed to lessen the financial burden of new property assessments on Philadelphia homeowners, whose property values increased by an average of 31% after the city delayed the annual calculations for three years due to the pandemic.
+Eligibility for the Homestead Exemption is as follows:
+•	you must own the property and use it as your primary residence
+•	no age or income restrictions
+•	Not used exclusively for business purposes or as rental units (a percentage is fine)
+
+A homeowner is Ineligible if a homeowner is already enrolled in these alternative real estate tax relief/abatement programs:
+•	Longtime Owner Occupants Program (LOOP), an	income-based program for homeowners who experience a substantial increase in their property assessment.
+•	10-year residential tax abatement program, although one can only apply for Homestead Exemption after the abatement is over
+
+Programs that can be used in conjunction with the homestead exemption include 
+•	Owner-Occupied Real Estate Tax Payment Agreement (OOPA)
+•	Senior Citizen Real Estate Tax Freeze
+•	Low-Income Real Estate Tax Freeze
+•	Real Estate Tax Installment Plan
+• Tax Credits for Active-Duty Reserve and National Guard Members
+
+## Tangled Titles
+An issue of concern that may result in a long-term resident not being able to claim for homestead exemption is tangled titles, which occur when a long-term resident effectively functions as a homeowner but lacks legal ownership of the property. This often happens when a family member who owned the property passes away, and the necessary legal processes to formalize the ownership transfer were never completed, leaving the resident ineligible for the exemption. However, Philadelphia has a conditional Homestead Exemption of three years for such cases while the legal transfer of ownership is resolved.
+
+## Significance of Outreach 
+Currently, no focused or strategic efforts are being carried out by to identify and reach homeowners who is not enrolled in the Homestead Exemption. Through an accurate identification of eligible homeowners, a cost-effective and efficient targeted outreach will be possible, enabling these homeowners to be made aware of and receive support in keeping their home.
+
+# Exploratory Data Analysis
+
+## Dependent Variable - Homestead Exemption
+
+The primary dataset used is the Property and Assessment History publicly available for download on OpenDataPhilly. 
+Six relevant datasets are merged with this primary dataset with common identifying keys such as the parcel number in order to include useful predictor variabels in the model predicting for homeowners most likely eligible but not currently enrolled in the Homestead Exemption.
+
+Every observation in the Property and Assessment History dataset is one property in Philadelphia, with a total of 584,049 properties and 79 features. As this dataset is updated daily, the one used for this project is updated as of 31 January 2025. 
+There is a column 'homestead_exemption' within this dataset which indicates the taxable portion amount removed from the property assessment of the house. It should be noted that there are 14 properties that had a homestead exemption larger then $100,000, the maximum possible amount, which is suspected to be a clerical error and has been flagged to the PhillyStat360 team. The dependent variable for the model is derived from this feature by creating a binary variable on whether or not the property is currently enrolled in the homestead exemption program, indicated by a non-zero value. There are 246,853 properties with a homestead exemption.
+
+```{r read data, echo=FALSE, message=FALSE, warning=FALSE, fig.show='hold'}
+properties <- fread("data/opa_properties_public.csv")
+census_tracts <- st_read("Data/phila_census1.gpkg")
+```
+
+```{r prepare property data, echo=FALSE, message=FALSE, warning=FALSE, fig.show='hold'}
+
+filtered_properties_ex <- properties %>%
+  mutate(exemption = ifelse(homestead_exemption == 0, 0, 1))
+
+# Filtering to residential properties
+
+filtered_properties_resonly <- filtered_properties_ex %>% mutate(is_residential = ifelse(zoning %in% c(
+  "RM1", "RM2", "RM3", "RM4",
+  "RSA1", "RSA2", "RSA3", "RSA4", "RSA5", "RSA6", 
+  "RSD1", "RSD2", "RSD3", 
+  "RM1|RSA5", "RSD1|RSD3", "RSA5|RSA5",
+  "RTA1", 
+  "CMX1", "CMX2", "CMX2.5", "CMX3", "CMX4", "CMX5", "IRMX"), 1, 0))
+
+# Step 1: Identify owners to remove
+ownerstoremove <- properties %>%
+  group_by(owner_1) %>%
+  summarise(property_count = n(), .groups = "drop") %>%
+  filter(str_detect(owner_1, " LLC | LLC|REAL ESTATE|ASSOC|HALABUGI INC|INVESTMENT|CHURCH|1229-1247 NORTH 27TH ST|KINGS HIGHWAY|VILLAGE|
+  ACQUISITION|PARTNERS|2101 WASHINGTON AVENUE LL|CHAI NUTS LP|REALTY|PROPERTIES|SPECIAL PEOPLE IN NORTHEA|COMPANY|SPECIAL|
+  LAND TRUST|TRUST|SIENA PLACE PLANNED COMMU|NORRIS SQUARE NEIGHBORHOO|201-59 NORTH EIGHTH|PREPARATOR|INVESTORS|
+  POINT BREEZE|WPRE III L P|NATIONAL|ARCH V-TEMPLE 16TH STREET|NORTH FOURTH STREET|BANKERS TRUST|COMMONS AT POINT BREEZE|
+  VETERAN|PRESERVATION|CONDOMINIUM|199 HUNTING PARK|APARTMENT|HOLDINGS| L P|COURT|SCHOOL|SERVICES|HABITAT FOR HUMANITY|COMMITTEE|BAPTIST|
+  COLLEGE|ACQUISITION|DELEO|AMTRAK|RENTALS|PARTICIPATION|SPRING ARTS|SEPTA|WASHINGTON SQUARE|FAIRMOUNT PARK|PARKING|
+  ARCH VI - TEMPLE|THE LOFTS|FUND |WHARTON COURT|GROUP|PENTECOST|RAD DIVERSIFIED REIT INC|COMMONS|LIMITED|PENNA |FIRST|CONTRACTOR|POINT BREEZE|BOOTSTRAP|RITTENHOUSE|
+  HABITAT FOR HUMANITY|DELAWARE RIVER|ENTERPRISES|COMMUNITY|FOUNDATION|BELL TELEPHONE CO|CENTER|PARTNERS|DEVELOPMENT|
+  VET AFFAIRS|FEDERAL|WORKFORCE|PENNDOT|INVESTORS|GEORGE WOODWARD INC|HARRISON INC|JDJ FUND|AFFORDABLE|INTERSTATE| INC |BIO LUCKY STAR INC|LEANNA INC|ELEBAH INC|BENGEMINI CONSULTANTS INC|BUILDERS|KOREAN COMMUNITY DEVELOPM|DEVELOPERS|
+  PORTFOLIO|RESIDENTIAL|PHILLY|PROJECT|MANAGEMENT|UMOJA INC|ASSN INC|DELAWARE VALLEY|ARCH VI - TEMPLE N GRATZ|SUPPLY|LOFTS|STREET|OFFICE| LP|CITY|VENTURES|
+  UNITED STATES OF AMERICA|PHILA|NON PROFIT|ASSO|HOUSE|NEIGHBORHOOD|PATH INC|UNIV|HOUSING|PROPERTY|COMMONWEALTH|CONRAIL|COMMERCE|
+  VENTURES|UNITED|CORRIDOR|SQUARE|CIVIC|ARMY|SALVATION|PENNSYLVANIA|ADMINISTRATOR|TOWNHOMES|CBM|RENTAL|AMERICA INC|ST FRANCIS INN|HOMEOWNERSHIP|
+  INSTITUTE|RESOURCES|CONSTRUCTION|L P|TRANSPORTATION|CSX|DREXEL|PASSYUNK|COLLEGE|WISTERCOR INC|SIENA PLACE PUD|EQUITY| CAPITAL|EXPORT|STRAWBERRY MANSION|7-ELEVEN|KEEP PLUGGING THREE INC|OUTSOURCE 2000 INC|CHAI 18 INC|Y E R A INC |WORLD|ADMIN|U S OF AMERICA|AUTHORITY|
+  SEPTA|APTS| LTD|CORP")) %>%
+  pull(owner_1)  # Extract the list of owners to remove
+
+# Step 2: Filter out properties owned by these owners
+filtered_properties <- filtered_properties_resonly %>%
+  filter(!owner_1 %in% ownerstoremove)
+
+# Look into exemption status by zoning code
+exemptionbyzoning <- filtered_properties %>%
+  group_by(zoning, exemption) %>%
+  summarise(count = n(), .groups = "drop") %>%
+  tidyr::pivot_wider(names_from = exemption, values_from = count, values_fill = list(count = 0)) %>%
+  rename(No_Exemption = `0`, Exemption = `1`)
+
+# Look into number of blank / NA zoning codes
+#num_blank_zoning <- properties %>%
+#  filter(zoning == "" | is.na(zoning) | str_trim(zoning) == "") %>%
+#  nrow()
+
+residential_properties <- filtered_properties %>% filter(is_residential == 1)
+```
+
+```{r prepare sf data, echo=FALSE, message=FALSE, warning=FALSE, fig.show='hold'}
+#### Transform to geodata in both 2272 and 4326 planes
+properties_sf <- st_as_sf(residential_properties, wkt = "shape", crs = 2272)
+
+residential_properties <- properties_sf %>%
+  mutate(
+    x_2272 = st_coordinates(.)[,1],  # X coordinate in EPSG:2272
+    y_2272 = st_coordinates(.)[,2]   # Y coordinate in EPSG:2272
+  ) %>%
+  st_transform(crs = 4326) %>%
+  mutate(
+    lon_4326 = st_coordinates(.)[,1],  # Longitude in EPSG:4326
+    lat_4326 = st_coordinates(.)[,2]   # Latitude in EPSG:4326
+  ) %>%
+  st_drop_geometry()
+
+census_tracts <- st_transform(census_tracts, 2272) %>% 
+  mutate(owner_occ_rate = (owner_hh / occupied_units)* 100)
+
+properties_tract <- st_join(properties_sf, census_tracts)
+
+# Create tract summary
+tract_summary <- properties_tract %>%
+  group_by(GEOID) %>%
+  summarise(
+    total_properties = n(),
+    homestead_count = sum(homestead_exemption > 0, na.rm = TRUE),
+    pct_homestead = (homestead_count / total_properties) * 100,
+    .groups = "drop"
+  ) %>%
+  st_drop_geometry()
+
+# Create final enriched dataset
+census_tracts_enriched <- census_tracts %>%
+  left_join(tract_summary, by = "GEOID")
+
+census_tracts_enriched <- census_tracts_enriched %>%
+  mutate(
+    owner_occ_rate = (census_tracts_enriched$owner_hh / census_tracts_enriched$occupied_units) * 100
+  )
+```
+
+### Homestead Rate by Census Tract
+
+One major issue faces is the large number of NA values. Even for those features with a low number of NA values indicated in this table, further investigation reveals that there are many empty cells. 
+
+```{r histogram homestead distribution, echo=FALSE, message=FALSE, warning=FALSE, fig.show='hold'}
+census_tracts_filtered <- census_tracts_enriched %>%
+  filter(pop_density > 0 & total_properties >= 30)  # 30 properties minimum
+
+census_tracts_invalid <- census_tracts_enriched %>%
+  filter(pop_density == 0 | total_properties < 30)  # Include low property counts in "invalid"
+
+# Create histogram of homestead exemption distribution
+census_hist <- ggplot(census_tracts_enriched %>% 
+       filter(pop_density > 0), # Filter out zero population tracts
+       aes(x = pct_homestead)) +
+  geom_histogram(
+    binwidth = 5,
+    fill = "#00ADA9",
+    color = "white"
+  ) +
+  labs(
+    title = "Distribution of Homestead Exemption Rates Across Philadelphia Census Tracts",
+    subtitle = "Excluding Zero Population Density Tracts",
+    x = "Percentage of Properties with Homestead Exemption",
+    y = "Number of Census Tracts"
+  ) +
+  theme_minimal() +
+  theme(
+    plot.title = element_text(size = 18, face = "bold"),
+    plot.subtitle = element_text(size = 14),
+    axis.title = element_text(size = 14),
+    axis.text = element_text(size = 14),
+    legend.text = element_text(size = 14)
+  ) +
+  scale_x_continuous(breaks = seq(0, 100, by = 10))
+
+census_hist
+```
+The distribution shows a roughly normal shape with most tracts clustered between 30-50%
+There's a notable drop-off below 30% in the number of tracts
+The histogram shows relatively few tracts with rates below 20%
+
+Therefore, census tracts with homestead exemption rates below 30% could be considered to have low enrollment and might warrant targeted outreach or investigation into barriers to participation, assuming they are primarily residential areas and not institutional/special use tracts.
+
+There's a notable drop-off below 30% in the number of tracts. Therefore, census tracts with homestead exemption rates below 30% could be considered to have low enrollment and might warrant targeted outreach or investigation into barriers to participation, assuming they are primarily residential areas.
+
+
+```{r map homestead distribution, echo=FALSE, message=FALSE, warning=FALSE, fig.show='hold'}
+
+custom_colors <- c("<20%" = "#e42524",     
+                   "20-30%" = "#ea7357",    
+                   "30-40%" = "#f0b48b",   
+                   "40-50%" = "#96d2c7",   
+                   "50-60%" = "#41c3b4",    
+                   ">60%" = "#00ADA9")
+
+homestead_pattern <- ggplot(census_tracts_enriched %>% 
+                           mutate(pct_homestead = case_when(
+                             pop_density < 2000 | total_properties < 100 ~ NA_real_,
+                             TRUE ~ pct_homestead))) +
+  geom_sf(aes(fill = cut(pct_homestead, 
+              breaks = c(0, 20, 30, 40, 50, 60, 100),
+              labels = c("<20%", "20-30%", "30-40%", "40-50%", "50-60%", ">60%"))),
+          color = "white", size = 0.2) +
+  scale_fill_manual(
+    name = "Homestead\nExemption Rate",
+    values = custom_colors,
+    na.value = "gray90",
+    guide = guide_legend(reverse = TRUE)
+  ) +
+  labs(
+    title = "Homestead Exemption Rates Across Philadelphia",
+    subtitle = "By Census Tract",
+    caption = "Gray tracts indicate population density < 2,000 per sq. mile or fewer than 100 properties"
+  ) +
+  theme_minimal() +
+  theme(
+    panel.grid = element_blank(),
+    plot.title = element_text(size = 18, face = "bold"),
+    plot.subtitle = element_text(size = 14),
+    axis.title = element_text(size = 14),
+    axis.text = element_blank(),
+    legend.text = element_text(size = 14)
+  )
+
+homestead_pattern
+```
+
+
+## Spatial Autocorrelation Metrics
+
+spacial lag, Moran's I
+
+
+## Predictors
+
+### Current Propertiy Characteristics
+
+
+Zoning Code​Corporation-Owned​Mailing address matches property address​
+
+Property has an Active Commercial License​
+
+Property has an Active Rental License​
+
+
+The first predictor variable is based off the key eligibility criteria of the Homestead Exemption program -- whether a homeowner resides long-term in the property itself. The closest proxy of this is whether the mailing street ('mailing_street') address is the same as the property street address ('location'), as the mailing address of the owner is often where the owner lives long-term.
+
+The second predictor variable is based off the ineligibility for the homestead exemption if the homeowner is already enrolled in particular exisitng tax programs such as the LOOP and the residential tax abatement. This is determined if there is an existing tax relief that exempts a portion of the building from tax. If there is a non-zero value for 'exempt-building' and the property is not currently enrolled in the homestead exemption, it is potentially already enrolled in LOOP or in residential tax abatement.
+
+```{r}
+# Predictor Variables 1 & 2: Eligibility Characteristics
+
+residential_properties <- residential_properties %>% 
+  mutate(same_address = ifelse(mailing_street == location, 1, 0))
+
+ggplot(residential_properties, aes(x = same_address, fill = as.factor(exemption))) +
+    geom_bar(position = "dodge") +
+    scale_fill_manual(values = colors, labels = c("No Exemption", "With Exemption")) +
+    labs(title = "Mailing Address Matches Property Address", x = "Address Match", y = "Count", fill = "Homestead Exemption") +
+    theme_minimal(base_size = 14) +
+    theme(panel.grid.major = element_line(color = "grey90"),
+          panel.grid.minor = element_blank(),
+          legend.position = "bottom",
+         plot.title = element_text(vjust = 0.5))
+
+```
+
+```{r}
+# Predictor Variables: whether the owner has 10 or more properties
+
+# Count the number of properties by owner_1
+owner_property_count <- filtered_properties %>%
+  group_by(owner_1) %>%
+  summarise(property_count = n(), .groups = "drop") %>%
+  arrange(desc(property_count))
+
+owner_property_count <- owner_property_count %>%
+  mutate(owner_count = ifelse(property_count >= 10, 1, 0))
+
+#join to dataset
+residential_properties <- residential_properties %>%
+  left_join(owner_property_count %>%
+              dplyr::select(owner_1, owner_count), 
+            by = "owner_1") %>%
+  mutate(owner_count = ifelse(is.na(owner_count), 0, owner_count))
+```
+
+Depth of the property as well as the total property area were also predictors, although not as useful as the eligibility criteria. 
+```{r}
+# Predictor Variables 3 & 4: Property Characteristics
+
+residential_properties <- residential_properties %>% mutate(is_deep = ifelse(depth > 150, 1, 0)) 
+ggplot(residential_properties %>% 
+         filter(!is.na(is_deep)), 
+       aes(x = factor(is_deep), fill = factor(exemption))) +
+  geom_bar(position = "dodge") +
+  scale_fill_manual(values = colors, labels = c("No Exemption", "With Exemption")) +
+  labs(title = "Property Depth by Homestead Exemption", 
+       x = "Depth > 300", 
+       y = "Count", 
+       fill = "Exemption") +
+  theme_minimal(base_size = 14) +
+  theme(panel.grid.major = element_line(color = "grey90"),
+        panel.grid.minor = element_blank(),
+        legend.position = "bottom",
+        plot.title = element_text(vjust = 0.5))
+residential_properties %>%
+  count(is_deep, exemption) %>%
+  tidyr::spread(key = exemption, value = n, fill = 0)  
+residential_properties %>%
+  count(same_address, exemption) %>%
+  tidyr::spread(key = exemption, value = n, fill = 0)  
+
+
+residential_properties <- residential_properties %>% mutate(large_area = ifelse(total_area > 150000, 1, 0))
+residential_properties %>%
+  count(large_area, exemption) %>%
+  tidyr::spread(key = exemption, value = n, fill = 0)
+```
+
+
+### Historical Propertiy Characteristics
+
+
+Past Average Market Value​ Market Value Volatility​ Frequency of past transactions​Type of property deed​
+
+
+### Neighborhood Demographic Characteristics
+
+Property-Related: Median Home Value, Overall Vacancy Rate, Owner Occupancy Rate, Mortgage Burden Rate​
+
+Owner-Related: Young Owner Rate, Senior Owner Rate, ​
+
+Demographics: Limited English Rate,  Diversity Index, Family Household Rate, Poverty Rate​
+
+### Neighborhood Economic Conditions
+
+Percentage of properties with unpaid tax balance per census tract. 
+
+

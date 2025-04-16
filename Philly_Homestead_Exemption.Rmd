@@ -1,26 +1,18 @@
 ---
-title: "Optimizing Entitlement Assistance Outreach to Homeowners"
+title: "Philly_Homestead_Exemption_Final"
 author: "Claudia Low, Haoyu Zhu, Rachel Midgett, Wenjun Zhu"
-date: "2025 Spring"
+date: "2025-04-15"
 output:
-  html_document:
-    toc: true
+  rmdformats::material:
+    code_download: true
     toc_float: true
-    theme: flatly
-    code_folding: hide
-editor_options: 
-  markdown: 
-    wrap: 72
+    highlight: zenburn 
+    font: "Lato"    
 ---
 
 ```{r setup, include=FALSE}
 
-knitr::opts_chunk$set(
-  echo = TRUE,
-  message = FALSE,
-  warning = FALSE,
-  cache = TRUE
-)
+knitr::opts_chunk$set(echo = FALSE, message = FALSE, warning = FALSE, results='hide', cache = TRUE)
 
 library(tidycensus)
 library(tidyverse)
@@ -692,6 +684,9 @@ ggplot(census_tracts_enriched %>%
 ### Predictor Variables
 
 #### Predictor Variables 1 & 2: Eligibility Characteristics
+
+
+
 
 The first predictor variable is based off the key eligibility criteria of the Homestead Exemption program -- whether a homeowner resides long-term in the property itself. The closest proxy of this is whether the mailing street ('mailing_street') address is the same as the property street address ('location'), as the mailing address of the owner is often where the owner lives long-term.
 
