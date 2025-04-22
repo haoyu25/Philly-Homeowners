@@ -1,26 +1,18 @@
 ---
-title: "Optimizing Entitlement Assistance Outreach to Homeowners"
+title: "Philly_Homestead_Exemption_Final"
 author: "Claudia Low, Haoyu Zhu, Rachel Midgett, Wenjun Zhu"
-date: "2025 Spring"
+date: "2025-04-15"
 output:
-  html_document:
-    toc: true
+  rmdformats::material:
+    code_download: true
     toc_float: true
-    theme: flatly
-    code_folding: hide
-editor_options: 
-  markdown: 
-    wrap: 72
+    highlight: zenburn 
+    font: "Lato"    
 ---
 
 ```{r setup, include=FALSE}
 
-knitr::opts_chunk$set(
-  echo = TRUE,
-  message = FALSE,
-  warning = FALSE,
-  cache = TRUE
-)
+knitr::opts_chunk$set(echo = FALSE, message = FALSE, warning = FALSE, results='hide', cache = TRUE)
 
 library(tidycensus)
 library(tidyverse)
@@ -65,7 +57,8 @@ library(stringr)
 library(car)
 library(data.table)
 library(leaflet)
-
+library(knitr)
+library(kableExtra)
 
 options(scipen = 999)
 root.dir = "https://raw.githubusercontent.com/urbanSpatial/Public-Policy-Analytics-Landing/master/DATA/"
@@ -254,7 +247,9 @@ census_tracts <- st_read("Data/phila_census1.gpkg")
 ```
 
 ```{r}
-census_tracts <- st_transform(census_tracts, 2272)
+census_tracts <- st_transform(census_tracts, 2272) %>% 
+  mutate(owner_occ_rate = (owner_hh / occupied_units)* 100)
+
 properties_tract <- st_join(properties_sf, census_tracts)
 
 # Create tract summary
@@ -689,6 +684,9 @@ ggplot(census_tracts_enriched %>%
 ### Predictor Variables
 
 #### Predictor Variables 1 & 2: Eligibility Characteristics
+
+
+
 
 The first predictor variable is based off the key eligibility criteria of the Homestead Exemption program -- whether a homeowner resides long-term in the property itself. The closest proxy of this is whether the mailing street ('mailing_street') address is the same as the property street address ('location'), as the mailing address of the owner is often where the owner lives long-term.
 
@@ -1531,7 +1529,7 @@ Wide variation in participation rates across all home values, shown by the verti
 ```{r}
 #join to dataset
 # Extract column names for index 81 to 112
-selected_columns <- names(properties_tract)[c(1, 81:112)]
+selected_columns <- names(properties_tract)[c(1, 81:113)]
 # Perform the left join
 residential_properties <- residential_properties %>%
   left_join(
@@ -1727,6 +1725,71 @@ zoning_summary_chart
 # ggsave("outputs/homestead-exemption-zoning_summary_chart.png", zoning_summary_chart, width = 10, height = 6)
 ```
 
+```{r}
+permits <- read.csv("permits.csv")
+table(permits$permitdescription)
+table(permits$permittype)
+sum(permits$permitissuedate == "")
+
+library(lubridate)
+library(dplyr)
+
+
+permits_changeofuse <- permits %>% filter(typeofwork == "Change of Use")
+
+permit_types <- c("NEW CONSTRUCTION PERMIT", 
+                  "Residential Building Permit", 
+                  "Zoning Permit", 
+                  "ZONING PERMIT", 
+                  "ZONING/USE PERMIT", 
+                  "USE PERMIT")
+
+valid_typeofwork <- c("New Construction or Additions", 
+                      "New construction, addition, GFA change", 
+                      "Addition and/or Alteration", 
+                      "Addition and/or Alterations", 
+                      "ADD", 
+                      "ALTER", 
+                      "Alterations")
+
+permits_filtered <- permits %>%
+  mutate(issue_date = ymd_hms(permitissuedate)) %>% 
+ filter(issue_date >= as.POSIXct("2016-01-01T00:00:00Z", tz = "UTC") & 
+         permitdescription %in% permit_types & 
+         (
+           typeofwork %in% valid_typeofwork |
+           (typeofwork == "Change of Use" & str_detect(approvedscopeofwork, "Residential"))
+         )) %>%
+  mutate(filterresidential = case_when(
+    commercialorresidential == "Residential" ~ 1,
+    typeofwork == "Change of Use" & str_detect(approvedscopeofwork, "Residential") ~ 1,
+    TRUE ~ 0
+  )) %>%
+  filter(filterresidential == 1)
+
+permits_summary <- permits_filtered %>%
+  group_by(address, geocode_x, geocode_y) %>%
+  summarize(
+    has_permit = as.integer(n() > 0)
+  ) %>%
+  ungroup()
+
+properties_with_permits <- filtered_properties %>%
+  left_join(permits_summary, by = c("location" = "address")) %>%
+  mutate(has_permit = coalesce(has_permit, 0))
+
+properties_with_permits$has_permit <- as.factor(properties_with_permits$has_permit)
+
+ggplot(properties_with_permits, aes(x = has_permit, fill = as.factor(exemption))) +
+    geom_bar(position = "dodge") +
+    scale_fill_manual(values = colors, labels = c("No Exemption", "With Exemption")) +
+    labs(title = "Property has Residential Permit Issued in Last 10 Years", x = "New Permit", y = "Count", fill = "Homestead Exemption") +
+    theme_minimal(base_size = 14) +
+    theme(panel.grid.major = element_line(color = "grey90"),
+          panel.grid.minor = element_blank(),
+          legend.position = "bottom",
+         plot.title = element_text(vjust = 0.5))
+```
 
 # Modeling
 ```{r}
@@ -1814,4 +1877,408 @@ numericVars %>%
   labs(title = "Correlation across numeric variables")  # Set plot title
 ```
 
-SEE MODELLING_DRAFT.RMD
+# Modelling
+
+## Load required packages for modelling
+```{r, include=FALSE}
+#Package installs -------------------------------------------------------------
+load.fun <- function(x) { 
+  x <- as.character(x) 
+  if(isTRUE(x %in% .packages(all.available=TRUE))) { 
+    eval(parse(text=paste("require(", x, ")", sep=""))) 
+    print(paste(c(x, " : already installed; requiring"), collapse=''))
+  } else { 
+    #update.packages()
+    print(paste(c(x, " : not installed; installing"), collapse=''))
+    eval(parse(text=paste("install.packages('", x, "')", sep=""))) 
+    print(paste(c(x, " : installed and requiring"), collapse=''))
+    eval(parse(text=paste("require(", x, ")", sep=""))) 
+  } 
+} 
+
+########### Required Packages ###########
+packages = c("bayesplot", "lme4","RcppEigen",
+             "tidyverse", "tidyr", "AmesHousing", "broom", "caret", "dials", "doParallel", "e1071", "earth",
+             "ggrepel", "glmnet", "ipred", "klaR", "kknn", "pROC", "rpart", "randomForest",
+             "sessioninfo", "tidymodels","ranger", "recipes", "workflows", "themis","xgboost",
+             "sf", "nngeo", "mapview","data.table","ggplot2","corrr","rsample","parsnip","tidymodels")
+
+for(i in seq_along(packages)){
+  packge <- as.character(packages[i])
+  load.fun(packge)
+}
+
+session_info()
+# Color palette
+palette2 <- c("#e42524", "#00ADA9")
+palette5 <- c('#BF4146', '#E5A186', '#F1C8BB', '#B3CADB','#6683a9')
+
+```
+
+## Feature overview
+Relationships between the selected features were first examined.
+
+```{r}
+properties_model<-fread("properties_model.csv")
+glimpse(properties_model)
+```
+
+### Continous Features
+```{r}
+data_continous <-properties_model %>%
+    dplyr::select(exemption, 
+                  geographic_ward, 
+                  balance_rate,#balance_total,
+                  #avg_market_value,sd_market_value,perc_bdg_exempt,
+                  pct_foreign_born,overall_vacancy_rate,limited_english_rate,
+                  diversity_index,median_income,median_home_value,owner_occ_rate,owner_count
+                  ) %>%
+    gather(Variable, value, -exemption) %>%
+    ggplot() + 
+    geom_density(aes(value, color=as.factor(exemption)), fill = "transparent") + 
+    facet_wrap(~Variable, scales = "free") +
+    scale_color_manual(values = palette2) +
+    labs(title = "Feature associations with Exemption",
+         subtitle = "(continous features)")+ theme_minimal()+
+  theme(legend.position = "bottom") 
+
+print(data_continous) 
+
+```
+
+### Categorical Features
+```{r}
+data_categorical<-properties_model %>%
+    dplyr::select(exemption, 
+                  same_address,is_deep,large_area,
+                  rental_license,commercial_license
+                  ) %>%
+  
+    gather(Variable, value, -exemption) %>%
+    filter(complete.cases(.))%>%
+    count(Variable, value, exemption)%>%
+      ggplot(., aes(value, n, fill = as.factor(exemption))) +   
+        geom_bar(position = "dodge", stat="identity") +
+        facet_wrap(~Variable, scales="free")  +
+        scale_fill_manual(values = palette2) +
+        labs(x="Categories", y="Value",
+             title = "Feature associations with Exemption",
+             subtitle = "Categorical features") +
+  theme_minimal()+
+  theme(legend.position = "bottom",
+        axis.text.x = element_text(angle = 60, hjust = 1,size=6))+
+  scale_x_discrete(labels = function(x) str_trunc(x, 10)) 
+
+print(data_categorical)
+```
+
+### Correlation Matrix
+```{r}
+numericVars <- as.data.frame(properties_model) %>%
+  dplyr::select(exemption, 
+                
+                young_owner_rate,senior_owner_rate,family_hh_rate,
+                limited_english_rate, median_home_value, diversity_index,mortgage_burden_rate
+                ) %>%  
+  select_if(is.numeric) %>% 
+  na.omit() 
+
+correlation_matrix <- cor(numericVars)
+
+
+numericVars %>% 
+  correlate() %>% 
+  autoplot() +
+  geom_tile(aes(fill = r), color = "#e9e9e9") +
+  geom_text(aes(label = round(r,digits=2)), size = 3) +
+  scale_fill_gradient2(low =  "#00ADA9", mid = "white", high =  "#e42524",
+                       midpoint = 0, limits = c(-1, 1),
+                       breaks = seq(-1, 1, by = 0.2)) +
+  labs(title = "Correlation across numeric variables")  # Set plot title
+```
+
+The final variables were selected for the model as below.
+```{r}
+variables <- c("geographic_ward", "same_address", 
+               "is_deep", "owner_count",
+         "rental_license", "commercial_license","balance_rate", 
+         "avg_market_value", "sd_market_value", "has_recent_transfer", "latest_document_type",
+          "overall_vacancy_rate", "poverty_rate",
+         "young_owner_rate","senior_owner_rate","family_hh_rate",
+         "limited_english_rate", "median_home_value", "diversity_index",
+         "mortgage_burden_rate","owner_occ_rate")
+
+```
+
+```{r}
+### Set up Dataset
+properties_model<- properties_model%>%
+  mutate(property_ID = seq(1:n()))%>%
+  dplyr::select(all_of(variables), exemption, zip_code)
+
+```
+
+## Split Dataset
+
+The dataset was split into a training and test set, where the training set comprised 75% of the total properties. The split is stratified by zip code, roughly balancing the zip codes across both sets to ensure minimize unequal geographical representation across both the training and test set. The final test set of 25% of the total properties will be left untouched, and used to evaluate the model after tuning and training are complete.
+
+```{r}
+### Initial Split for Training and Test
+data_split <- initial_split(properties_model, strata = "zip_code", prop = 0.75)
+properties_train <- training(data_split)
+properties_test  <- testing(data_split)
+```
+
+A Leave-One-Group-Out Cross-Validation (LOGOCV) strategy was then implemented within the training dataset, using geographic ward as the grouping variable. Each fold holds out one geographic ward as the validation set while the model is trained on data from all remaining wards. This process iterates across all wards, where each geographic ward serves as a validation fold once. By accounting for potential spatial autocorrelation, this method helps reduce overfitting and prevents data leakage that could arise from training and testing on geographically proximate observations.
+```{r}
+### Cross Validation
+## LOGOCV on Neighborhood with group_vfold_cv()
+cv_splits_geo <- group_vfold_cv(properties_train,  
+                                group = "geographic_ward")
+print(cv_splits_geo)
+```
+
+Feature preprocessing is then conducted—categorical variables are one-hot encoded, predictors with zero variance are removed, and numeric predictors are standardized.
+```{r}
+# Feature Creation
+model_rec <- recipe(exemption ~ ., data = properties_train)  %>%
+  step_dummy(all_nominal_predictors()) %>%  
+  step_zv(all_predictors()) %>%
+  step_center(all_numeric_predictors()) %>%
+  step_scale(all_numeric_predictors())
+```
+
+## Build Model
+
+An XGBoost was then defined with 200 trees, while the number of variables randomly sampled at each split and the minimum number of observation in a terminal node are tuned with with the help of a hyperparameter grid search.
+
+```{r, include=FALSE}
+## Model specifications
+XGB_plan <- boost_tree() %>%
+  set_args(mtry  = tune()) %>%
+  set_args(min_n = tune()) %>%
+  #set_args(learn_rate = tune())%>%
+  #set_args(tree_depth = tune())%>%
+  set_args(trees = 200) %>% 
+  set_engine("xgboost") %>% 
+  set_mode("regression")
+
+
+# Hyperparameter grid for glmnet (penalization)
+xgb_grid <- expand.grid(
+  mtry = c(3, 7,10
+           ),  
+  min_n = c(1, 5, 10
+            )
+  #, learn_rate = c(0.01, 0.3), 
+  #tree_depth = c(3, 5, 7, 10)  
+)
+
+# create workflow
+xgb_wf <-
+  workflow() %>% 
+  add_recipe(model_rec) %>% 
+  add_model(XGB_plan)
+
+
+# fit model to workflow and calculate metrics
+control <- control_resamples(save_pred = TRUE, verbose = TRUE)
+metrics <- metric_set(rmse, rsq, mape, smape)
+xgb_tuned <- xgb_wf %>%
+  tune::tune_grid(.,
+                  resamples = cv_splits_geo,
+                  grid      = xgb_grid,
+                  control   = control,
+                  metrics   = metrics)
+```
+
+The grid search is conducted with the best model selected based on having the lowest Root Mean Squared Error.
+```{r}
+## metrics across grid
+collect_metrics(xgb_tuned)
+
+## 'Best' by some metric and margin
+show_best(xgb_tuned, metric = "rsq", n = 15)
+
+xgb_best_params    <- select_best(xgb_tuned, metric = "rmse"   )
+
+xgb_best_wf    <- finalize_workflow(xgb_wf, xgb_best_params)
+
+# last_fit() emulates the process where, after determining the best model, the final fit on the entire training set is needed and is then evaluated on the test set.
+
+xgb_val_fit_geo <- xgb_best_wf %>% 
+  last_fit(split     = data_split,
+           control   = control,
+           metrics   = metrics)
+
+```
+
+This chosen model is run on the test set for evaluation.
+```{r}
+# Pull best hyperparam preds from out-of-fold predictions
+xgb_best_OOF_preds <- collect_predictions(xgb_tuned) %>% 
+  filter(mtry  == xgb_best_params$mtry[1] & min_n == xgb_best_params$min_n[1])
+
+# collect validation set predictions from last_fit model
+xgb_val_pred_geo    <- collect_predictions(xgb_val_fit_geo)
+```
+
+```{r}
+collect_metrics(xgb_tuned) %>%
+  filter(.metric == "rmse") %>%
+  ggplot(aes(x = factor(mtry), y = mean, fill = factor(min_n))) +
+  geom_bar(stat = "identity", position = "dodge") +
+  labs(title = "RMSE Across Different Hyperparameter Combinations",
+       x = "mtry",
+       y = "Mean RMSE",
+       fill = "min_n") +
+  theme_minimal()
+```
+
+The threshold is set at 0.5, where any predictions with a probability of 0.5 or over are categorized as predicted to be eligible for the exemption. This has 
+```{r}
+xgb_val_pred_geo$exemption.pred <- as.factor(ifelse(xgb_val_pred_geo$.pred >= 0.5, "1", "0") )
+xgb_val_pred_geo$exemption<-as.factor(xgb_val_pred_geo$exemption)
+```
+
+A confusion matrix of the model results was then produced. Breaking it down, 205,188 positives are true positives, meaning they are properties with an existing homestead exemption and were accurately predicted to be eligible for the exemption. 34,598 properties were wrongly predicted to not have an exemption although they were already enrolled in one. This false negative rate should be minimized. 152,373 properties were accurately predicted to not have an existing exemption. One can observe there are 77,317 false positives. This is the target group of interest, in which our model predicts that they should have an exemption, meaning they should be eligible for one, yet are not currently enrolled.
+```{r}
+caret::confusionMatrix(xgb_val_pred_geo$exemption.pred, xgb_val_pred_geo$exemption, 
+                       positive = "1")
+```
+
+```{r}
+library(data.table)
+fwrite(xgb_val_pred_geo, "xgb_val_pred_geo.csv")
+```
+
+```{r}
+library(plotROC)
+
+ggplot(xgb_val_pred_geo, aes(d = as.numeric(exemption), m = .pred)) +
+  geom_roc(n.cuts = 50, labels = FALSE, colour = "#BF4146") +
+  style_roc(theme = theme_grey) +
+  geom_abline(slope = 1, intercept = 0, size = 1, color = '#6683a9') +
+  labs(title = "ROC Curve") +
+  theme_minimal()
+```
+
+
+The density distribution of the predicted probabilities were then plotted. 
+```{r}
+
+ggplot(xgb_val_pred_geo, aes(x = .pred, fill = as.factor(exemption))) + 
+  geom_density() +
+  facet_grid(exemption ~ .) +
+  scale_fill_manual(values = palette2) +
+  labs(x = "Probabilities", y = "Density of probabilities",
+       title = "Distribution of predicted probabilities by observed outcome",
+             subtitle = "No gentrification = 0, Gentrification = 1") +
+  theme_minimal() +
+  theme(legend.position = "none") 
+
+```
+
+```{r}
+properties_model<-fread("properties_model.csv")
+xgb_full_pred <- xgb_best_wf %>% 
+  fit(data = properties_model) %>%
+  predict(new_data = properties_model) %>%
+  bind_cols(properties_model)
+
+```
+
+```{r}
+xgb_full_pred <- xgb_full_pred %>%
+  mutate(exemption.pred = ifelse(.pred >= 0.5, "1", "0"))
+```
+
+```{r}
+fwrite(xgb_full_pred, "xgb_full_pred.csv")
+```
+
+
+# Target Outreach
+
+
+
+
+
+
+
+
+
+
+
+
+# Outreach Strategies and Associated Costs and Benefits
+Two main potential outreach strategies are proposed. The costs for each of these strategies were then estimated based on existing cost structure references.
+
+The first potential strategy is a direct mailing campaign, which involves sending flyers out to all properties identified as false positives by the model. The flyer would contain information on what the homestead exemption program is, its eligibility criteria, instructions on how to apply, and relevant contact information, translated across different languages.  
+
+The next potential strategy is a door-knocking campaign. This involves going door-to-door to identified properties and having canvassers knock on the doors, sharing with homeowners who respond about the homestead exemption program. This face-to-face interaction can highly effective in raising awareness about the program, how to apply to it, and directly address any queries or doubts that the homeowner may have about it. From July 2023 to June 2024, the City of Philadelphia conducted a door-knocking campaign under the Overdose Awareness Canvassing and Trusted Community Messenger Program. Door-knocking is proposed to be conducted for high potential areas with clusters of missed homestead exemption opportunities. This optimizes limited resources in travel time and costs between properties for door knocking. This campaign would therefore only target the 13,031 homes identified in the two clusters, Northeast and South Philadelphia, which have 6,669 and 6,362 target outreach homes respectively.
+
+```{r, message=FALSE, warning=FALSE}
+costs <- data.frame(
+  Category = c(
+    "Personnel", "Purchase Services", "Program Supplies", "Indirect Costs", "Total"
+  ),
+  `Direct Mailing\n(All: 77,317 homes)` = c(
+    2806, 726, 29678, 3321, 36532
+  ),
+  `Door-Knocking\n(High-Potential Clusters: 13,031 homes)` = c(
+    29840, 66816, 3798, 10045, 110499
+  )
+)
+
+costs[ ,2:3] <- lapply(costs[ ,2:3], dollar)
+
+kable(costs, align = "lrr", escape = FALSE, caption = "Program Outreach Costs by Strategy") %>%
+  kable_styling(full_width = FALSE, bootstrap_options = c("striped", "hover"))
+
+```
+
+Another potential strategy is to reach out to community organizations to educate organization leaders and staff about the exemption program, who can then spread the word to their members and the immediate local community about it. This may include social service organization or religious organizations, such as the United Communities Houston Center or the City of Life church in South Philadelphia.
+
+
+The potential benefits of such outreach campaigns are vast. With an assumption that 10% of all homeowners we outreach to then successfully enroll into a homestead exemption, there can be up to $10,815,669 of savings across the homeowners. Majority of the homestead exemptions have been observed to receive the maximum eligible exemption. Comparing this to the total outreach cost for both strategies of $18,4132, the outreach can bring massive public benefit for a relatively small amount. Furthermore, this estimate is does not even include the huge unquantified benefits of increased housing stability for homeowners and their families. This reduces transience and encourages owner occupancy and long term residency, which supports consistent neighborhood networks, fostering more engaged and invested local communities. Owner-occupied homes are also more likely to be well-maintained as there is greater incentive to upkeep the property, which benefits neighborhood aesthetics and property values.
+
+# Comparison to a business-as-usual filtering approach
+```{r}
+filtered_properties_resonly <- filtered_properties_ex %>% mutate(is_residential = ifelse(zoning %in% c(
+  "RM1", "RM2", "RM3", "RM4",
+  "RSA1", "RSA2", "RSA3", "RSA4", "RSA5", "RSA6", 
+  "RSD1", "RSD2", "RSD3", 
+  "RM1|RSA5", "RSD1|RSD3", "RSA5|RSA5",
+  "RTA1", 
+  "CMX1", "CMX2", "CMX2.5", "CMX3", "CMX4", "CMX5", "IRMX"), 1, 0))
+
+ownerstoremove <- properties %>%
+  group_by(owner_1) %>%
+  summarise(property_count = n(), .groups = "drop") %>%
+  filter(str_detect(owner_1, " LLC | LLC|REAL ESTATE|ASSOC|HALABUGI INC|INVESTMENT|CHURCH|1229-1247 NORTH 27TH ST|KINGS HIGHWAY|VILLAGE|
+  ACQUISITION|PARTNERS|2101 WASHINGTON AVENUE LL|CHAI NUTS LP|REALTY|PROPERTIES|SPECIAL PEOPLE IN NORTHEA|COMPANY|SPECIAL|
+  LAND TRUST|TRUST|SIENA PLACE PLANNED COMMU|NORRIS SQUARE NEIGHBORHOO|201-59 NORTH EIGHTH|PREPARATOR|INVESTORS|
+  POINT BREEZE|WPRE III L P|NATIONAL|ARCH V-TEMPLE 16TH STREET|NORTH FOURTH STREET|BANKERS TRUST|COMMONS AT POINT BREEZE|
+  VETERAN|PRESERVATION|CONDOMINIUM|199 HUNTING PARK|APARTMENT|HOLDINGS| L P|COURT|SCHOOL|SERVICES|HABITAT FOR HUMANITY|COMMITTEE|BAPTIST|
+  COLLEGE|ACQUISITION|DELEO|AMTRAK|RENTALS|PARTICIPATION|SPRING ARTS|SEPTA|WASHINGTON SQUARE|FAIRMOUNT PARK|PARKING|
+  ARCH VI - TEMPLE|THE LOFTS|FUND |WHARTON COURT|GROUP|PENTECOST|RAD DIVERSIFIED REIT INC|COMMONS|LIMITED|PENNA |FIRST|CONTRACTOR|POINT BREEZE|BOOTSTRAP|RITTENHOUSE|
+  HABITAT FOR HUMANITY|DELAWARE RIVER|ENTERPRISES|COMMUNITY|FOUNDATION|BELL TELEPHONE CO|CENTER|PARTNERS|DEVELOPMENT|
+  VET AFFAIRS|FEDERAL|WORKFORCE|PENNDOT|INVESTORS|GEORGE WOODWARD INC|HARRISON INC|JDJ FUND|AFFORDABLE|INTERSTATE| INC |BIO LUCKY STAR INC|LEANNA INC|ELEBAH INC|BENGEMINI CONSULTANTS INC|BUILDERS|KOREAN COMMUNITY DEVELOPM|DEVELOPERS|
+  PORTFOLIO|RESIDENTIAL|PHILLY|PROJECT|MANAGEMENT|UMOJA INC|ASSN INC|DELAWARE VALLEY|ARCH VI - TEMPLE N GRATZ|SUPPLY|LOFTS|STREET|OFFICE| LP|CITY|VENTURES|
+  UNITED STATES OF AMERICA|PHILA|NON PROFIT|ASSO|HOUSE|NEIGHBORHOOD|PATH INC|UNIV|HOUSING|PROPERTY|COMMONWEALTH|CONRAIL|COMMERCE|
+  VENTURES|UNITED|CORRIDOR|SQUARE|CIVIC|ARMY|SALVATION|PENNSYLVANIA|ADMINISTRATOR|TOWNHOMES|CBM|RENTAL|AMERICA INC|ST FRANCIS INN|HOMEOWNERSHIP|
+  INSTITUTE|RESOURCES|CONSTRUCTION|L P|TRANSPORTATION|CSX|DREXEL|PASSYUNK|COLLEGE|WISTERCOR INC|SIENA PLACE PUD|EQUITY| CAPITAL|EXPORT|STRAWBERRY MANSION|7-ELEVEN|KEEP PLUGGING THREE INC|OUTSOURCE 2000 INC|CHAI 18 INC|Y E R A INC |WORLD|ADMIN|U S OF AMERICA|AUTHORITY|
+  SEPTA|APTS| LTD|CORP")) %>%
+  pull(owner_1)  # Extract the list of owners to remove
+
+# Step 2: Filter out properties owned by these owners
+filtered_properties <- filtered_properties_resonly %>%
+  filter(!owner_1 %in% ownerstoremove)
+
+residential_properties <- filtered_properties %>% filter(is_residential == 1)
+```
+It is then explroed how the use of the model compares to an alternative approach of a filtered list of properties. The properties are filtered to residential-only, non-corporation owned properties with the same address as its mailing address. This results in 333,623 properties, which would cost $143,668 to execute solely the direct mailing campaign. Using a machine learning model to identify properties to reach out to substantially narrows down the target number, allowing for huge cost-savings and an effective use of limited resources. The spatial analysis of false positives also allow for more targeted door-knocking to take place.
+
+
+# Biasness Check of Model
