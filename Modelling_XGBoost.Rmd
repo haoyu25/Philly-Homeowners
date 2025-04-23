@@ -1126,10 +1126,10 @@ caret::confusionMatrix(xgb_full_pred4$exemption.pred4, xgb_full_pred4$exemption,
 ```{r}
 xgb_full_pred4 <- xgb_full_pred4 %>%
   mutate(exemption.pred0.5 = ifelse(.pred4 >= 0.5, "1", "0"),
-         exemption.pred0.6 = ifelse(.pred4 >= 0.5, "1", "0"),
-         exemption.pred0.7 = ifelse(.pred4 >= 0.5, "1", "0"),
-         exemption.pred0.8 = ifelse(.pred4 >= 0.5, "1", "0"),
-         exemption.pred0.9 = ifelse(.pred4 >= 0.5, "1", "0"))
+         exemption.pred0.6 = ifelse(.pred4 >= 0.6, "1", "0"),
+         exemption.pred0.7 = ifelse(.pred4 >= 0.7, "1", "0"),
+         exemption.pred0.8 = ifelse(.pred4 >= 0.8, "1", "0"),
+         exemption.pred0.9 = ifelse(.pred4 >= 0.9, "1", "0"))
 ```
 
 
@@ -1141,7 +1141,12 @@ fwrite(xgb_full_pred4, "xgb_full_pred.csv")
 ## Analysis residuals
 
 ```{r}
-xgb_full_pred_sf <- xgb_full_pred4 %>%
+properties_result<-fread("xgb_full_pred.csv")
+```
+
+
+```{r}
+properties_result <- properties_result %>%
   mutate(residual1 = as.numeric(exemption) - .pred1,
          residual2 = as.numeric(exemption) - .pred2,
          residual3 = as.numeric(exemption) - .pred3,
@@ -1152,15 +1157,13 @@ xgb_full_pred_sf <- xgb_full_pred4 %>%
 ```{r}
 library(yardstick)
 
-# 转为 long format 更好对比
-residuals_long <- xgb_full_pred_sf %>%
+residuals_long <- properties_result %>%
   st_drop_geometry()%>%
   dplyr::select(exemption, residual1, residual2, residual3, residual4) %>%
   pivot_longer(cols = starts_with("residual"),
                names_to = "model",
                values_to = "residual")
 
-# 计算 MAE、RMSE
 residual_metrics <- residuals_long %>%
   group_by(model) %>%
   summarise(
@@ -1178,55 +1181,68 @@ ggplot(residuals_long, aes(x = residual, fill = model)) +
 ```
 
 ```{r}
-sf_data <- xgb_full_pred_sf %>%
+library(dplyr)
+library(tidyr)
+
+resid_summary <- properties_result %>%
+  summarise(across(starts_with("residual"), list(
+    rmse = ~ sqrt(mean(.^2, na.rm = TRUE)),
+    mae = ~ mean(abs(.), na.rm = TRUE),
+    meanresid = ~ mean(., na.rm = TRUE)
+  ))) %>%
+  pivot_longer(cols = everything(), 
+               names_to = "metric", 
+               values_to = "value") %>%
+  extract(metric, into = c("residual", "stat"), 
+          regex = "(residual\\d+)_(.*)") %>%
+  pivot_wider(names_from = stat, values_from = value) %>%
+  dplyr::select(residual, mae, meanresid, rmse)
+
+print(resid_summary)
+```
+
+```{r}
+sf_data <- properties_result %>%
   st_as_sf(coords = c("lon_4326", "lat_4326"), crs = 4326)
-
-# View the sf object
-print(sf_data)
-```
-
-```{r}
-
-max_val <- max(abs(c(xgb_full_pred_sf$residual1,
-                     xgb_full_pred_sf$residual2,
-                     xgb_full_pred_sf$residual3,
-                     xgb_full_pred_sf$residual4)), na.rm = TRUE)
-
-max_val
-range(xgb_full_pred_sf$residual1, na.rm = TRUE)
 ```
 
 
 ```{r}
-tm_shape(sf_data) +
-  tm_fill("residual2", palette = colors6, 
-          style = "cont",  # 确保数据是连续型的
-          breaks = c(-max_val, seq(-max_val, max_val, length.out = 6), max_val),
-          title = "Residual") +
-  tm_borders() +
-  tm_layout(main.title = "Residuals - Model 2")
-```
+library(spdep)
 
+coords <- cbind(properties_result$x_2272, properties_result$y_2272)
+neighbors <- knn2nb(knearneigh(coords, k = 4))
+weights <- nb2listw(neighbors)
 
+moran1 <- moran.test(properties_result$residual1, listw = weights)
+moran2 <- moran.test(properties_result$residual2, listw = weights)
+moran3 <- moran.test(properties_result$residual3, listw = weights)
+moran4 <- moran.test(properties_result$residual4, listw = weights)
 
-```{r}
-# Residual 2
-ggplot(xgb_full_pred_sf) +
-  geom_sf(aes(fill = balance_rate), color = NA) +
-  scale_fill_gradientn(colors = colors6,
-                       name = "Residual") +
-  labs(title = "Residuals - Model 2") +
-  theme_minimal()
 ```
 
 ```{r}
-# Residual 3
-ggplot(sf_data) +
-  geom_sf(aes(fill = residual3), color = NA) +
-  scale_fill_gradientn(colors = colors6,
-                       limits = c(-max_val, max_val),
-                       name = "Residual") +
-  labs(title = "Residuals - Model 3") +
-  theme_minimal()
+library(broom)
+library(dplyr)
+library(purrr)  # 用于 map 操作
+
+# 创建一个命名列表
+moran_list <- list(
+  residual1 = tidy(moran1),
+  residual2 = tidy(moran2),
+  residual3 = tidy(moran3),
+  residual4 = tidy(moran4)
+)
+
+# 合并为 data.frame 并选择需要的列
+moran_summary <- moran_list %>%
+  bind_rows(.id = "residual") %>%
+  dplyr::select(residual, moran_i = estimate1, z_stat = statistic, p_value = p.value)
+
+print(moran_summary)
+
 ```
+
+Among the four models, only residual1 shows significant positive spatial autocorrelation (Moran’s I = 0.0215, p < 0.001), indicating spatial clustering of residuals and suggesting that the model fails to fully account for spatially structured variables. In contrast, residual2 to residual4 all exhibit slight negative Moran’s I values with extremely high p-values (p = 1), indicating no significant spatial autocorrelation and thus better handling of spatial dependencies.
+
 

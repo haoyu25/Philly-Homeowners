@@ -7,7 +7,7 @@ output:
     code_download: true
     toc_float: true
     highlight: zenburn 
-    font: "Lato"    
+    css: custom_theme.css   
 ---
 
 ```{r setup, include=FALSE}
@@ -134,12 +134,10 @@ census_tracts <- st_read("Data/phila_census1.gpkg")
 
 ```{r prepare property data, echo=FALSE, message=FALSE, warning=FALSE, fig.show='hold'}
 
-filtered_properties_ex <- properties %>%
-  mutate(exemption = ifelse(homestead_exemption == 0, 0, 1))
-
 # Filtering to residential properties
-
-filtered_properties_resonly <- filtered_properties_ex %>% mutate(is_residential = ifelse(zoning %in% c(
+filtered_properties_resonly <- properties %>% 
+  mutate(exemption = ifelse(homestead_exemption == 0, 0, 1))%>%
+  mutate(is_residential = ifelse(zoning %in% c(
   "RM1", "RM2", "RM3", "RM4",
   "RSA1", "RSA2", "RSA3", "RSA4", "RSA5", "RSA6", 
   "RSD1", "RSD2", "RSD3", 
@@ -177,11 +175,6 @@ exemptionbyzoning <- filtered_properties %>%
   summarise(count = n(), .groups = "drop") %>%
   tidyr::pivot_wider(names_from = exemption, values_from = count, values_fill = list(count = 0)) %>%
   rename(No_Exemption = `0`, Exemption = `1`)
-
-# Look into number of blank / NA zoning codes
-#num_blank_zoning <- properties %>%
-#  filter(zoning == "" | is.na(zoning) | str_trim(zoning) == "") %>%
-#  nrow()
 
 residential_properties <- filtered_properties %>% filter(is_residential == 1)
 ```
@@ -276,7 +269,6 @@ There's a notable drop-off below 30% in the number of tracts. Therefore, census 
 
 
 ```{r map homestead distribution, echo=FALSE, message=FALSE, warning=FALSE, fig.show='hold'}
-
 custom_colors <- c("<20%" = "#e42524",     
                    "20-30%" = "#ea7357",    
                    "30-40%" = "#f0b48b",   
@@ -295,7 +287,7 @@ homestead_pattern <- ggplot(census_tracts_enriched %>%
   scale_fill_manual(
     name = "Homestead\nExemption Rate",
     values = custom_colors,
-    na.value = "gray90",
+    na.value = "gray95",
     guide = guide_legend(reverse = TRUE)
   ) +
   labs(
@@ -319,73 +311,93 @@ homestead_pattern
 
 ## Spatial Autocorrelation Metrics
 
-spacial lag, Moran's I
+
+```{r join_count, eval=FALSE}
+library(spdep)
+knn_nb <- knn2nb(knearneigh(xgb_full_pred_sf, k = 4, use_kd_tree = FALSE))
+
+exemption_data <- as.factor(properties_full_pred_sf$exemption)
+join_count_test <- joincount.test(exemption_data, listw = nb2listw(knn_nb, style = "B"))
+print(join_count_test)
+```
+
+
+```{r ADD_Spatial_lag, eval=FALSE}
+lw <- nb2listw(knn_nb, style = "W") 
+properties_full_pred_sf$lag_exemption <- lag.listw(lw, properties_full_pred_sf$exemption)
+```
 
 
 ## Predictors
 
-### Current Propertiy Characteristics
+### Current Propertiy Characteristics {.tabset}
 
+We analyze the characteristics of the properties themselves including zoning code, ownership status (e.g., corporation-owned), and whether the mailing address matches the property address.
 
-Zoning Code​Corporation-Owned​Mailing address matches property address​
-
-Property has an Active Commercial License​
-
-Property has an Active Rental License​
-
+#### Same Address {.unnumbered}
 
 The first predictor variable is based off the key eligibility criteria of the Homestead Exemption program -- whether a homeowner resides long-term in the property itself. The closest proxy of this is whether the mailing street ('mailing_street') address is the same as the property street address ('location'), as the mailing address of the owner is often where the owner lives long-term.
 
-The second predictor variable is based off the ineligibility for the homestead exemption if the homeowner is already enrolled in particular exisitng tax programs such as the LOOP and the residential tax abatement. This is determined if there is an existing tax relief that exempts a portion of the building from tax. If there is a non-zero value for 'exempt-building' and the property is not currently enrolled in the homestead exemption, it is potentially already enrolled in LOOP or in residential tax abatement.
-
-```{r}
-# Predictor Variables 1 & 2: Eligibility Characteristics
-
+```{r same_address, echo=FALSE, message=FALSE, warning=FALSE, fig.show='hold'}
 residential_properties <- residential_properties %>% 
   mutate(same_address = ifelse(mailing_street == location, 1, 0))
 
 ggplot(residential_properties, aes(x = same_address, fill = as.factor(exemption))) +
     geom_bar(position = "dodge") +
-    scale_fill_manual(values = colors, labels = c("No Exemption", "With Exemption")) +
+    scale_fill_manual(values = colors2, labels = c("No Exemption", "With Exemption")) +
     labs(title = "Mailing Address Matches Property Address", x = "Address Match", y = "Count", fill = "Homestead Exemption") +
     theme_minimal(base_size = 14) +
     theme(panel.grid.major = element_line(color = "grey90"),
           panel.grid.minor = element_blank(),
           legend.position = "bottom",
          plot.title = element_text(vjust = 0.5))
-
 ```
 
-```{r}
-# Predictor Variables: whether the owner has 10 or more properties
+#### Owner Count Address {.unnumbered}
 
-# Count the number of properties by owner_1
+This predictor variable is based off the ineligibility for the homestead exemption if the homeowner is already enrolled in particular exisitng tax programs such as the LOOP and the residential tax abatement. This is determined if there is an existing tax relief that exempts a portion of the building from tax. If there is a non-zero value for 'exempt-building' and the property is not currently enrolled in the homestead exemption, it is potentially already enrolled in LOOP or in residential tax abatement.
+
+```{r owner_count, echo=FALSE, message=FALSE, warning=FALSE, fig.show='hold'}
+## Count the number of properties by owner_1
 owner_property_count <- filtered_properties %>%
   group_by(owner_1) %>%
   summarise(property_count = n(), .groups = "drop") %>%
-  arrange(desc(property_count))
-
-owner_property_count <- owner_property_count %>%
+  arrange(desc(property_count))%>%
   mutate(owner_count = ifelse(property_count >= 10, 1, 0))
 
-#join to dataset
+## join to dataset
 residential_properties <- residential_properties %>%
   left_join(owner_property_count %>%
               dplyr::select(owner_1, owner_count), 
             by = "owner_1") %>%
   mutate(owner_count = ifelse(is.na(owner_count), 0, owner_count))
+
+## plot
+ggplot(residential_properties, aes(x = owner_count, fill = as.factor(exemption))) +
+    geom_bar(position = "dodge") +
+    scale_fill_manual(values = colors2, labels = c("No Exemption", "With Exemption")) +
+    labs(title = "Whether the owner has 10 or more properties", x = "Owner Count", y = "Count", fill = "Homestead Exemption") +
+    theme_minimal(base_size = 14) +
+    theme(panel.grid.major = element_line(color = "grey90"),
+          panel.grid.minor = element_blank(),
+          legend.position = "bottom",
+         plot.title = element_text(vjust = 0.5))
 ```
 
-Depth of the property as well as the total property area were also predictors, although not as useful as the eligibility criteria. 
-```{r}
-# Predictor Variables 3 & 4: Property Characteristics
+#### Depth of the Property {.unnumbered}
 
-residential_properties <- residential_properties %>% mutate(is_deep = ifelse(depth > 150, 1, 0)) 
+Depth of the property as well as the total property area were also predictors, although not as useful as the eligibility criteria. 
+```{r depth, echo=FALSE, message=FALSE, warning=FALSE, fig.show='hold'}
+# 1-3: Depth
+residential_properties <- residential_properties %>% 
+  mutate(is_deep = ifelse(depth > 150, 1, 0),
+         large_area = ifelse(total_area > 150000, 1, 0))
+
 ggplot(residential_properties %>% 
          filter(!is.na(is_deep)), 
        aes(x = factor(is_deep), fill = factor(exemption))) +
   geom_bar(position = "dodge") +
-  scale_fill_manual(values = colors, labels = c("No Exemption", "With Exemption")) +
+  scale_fill_manual(values = colors2, labels = c("No Exemption", "With Exemption")) +
   labs(title = "Property Depth by Homestead Exemption", 
        x = "Depth > 300", 
        y = "Count", 
@@ -395,37 +407,808 @@ ggplot(residential_properties %>%
         panel.grid.minor = element_blank(),
         legend.position = "bottom",
         plot.title = element_text(vjust = 0.5))
-residential_properties %>%
-  count(is_deep, exemption) %>%
-  tidyr::spread(key = exemption, value = n, fill = 0)  
-residential_properties %>%
-  count(same_address, exemption) %>%
-  tidyr::spread(key = exemption, value = n, fill = 0)  
+```
 
+#### Rental Licenses {.unnumbered}
 
-residential_properties <- residential_properties %>% mutate(large_area = ifelse(total_area > 150000, 1, 0))
-residential_properties %>%
-  count(large_area, exemption) %>%
-  tidyr::spread(key = exemption, value = n, fill = 0)
+These two predictor variables are based on the key eligibility criteria of the Homestead Exemption program, that a property must not be used exclusively for business or rental purposes (partial use is allowed). We divided this criterion into two sections: one assessing the potential for exclusive business use and the other for exclusive rental use. A property is considered to have rental potential if it holds an active rental license, and business potential if it has an active business license (excluding rental licenses). Both variables are binary (has/does not have).
+
+```{r rental license, echo=FALSE, message=FALSE, warning=FALSE, fig.show='hold'}
+business_license<-st_read("Data/business_licenses.geojson")
+
+rental_license<-business_license%>%
+  filter(licensetype=="Rental",
+         #rentalcategory=="Residential Dwellings",
+         licensestatus %in% c("Active"))%>%
+  dplyr::select(opa_account_num)%>%
+  st_drop_geometry()%>%
+  distinct() %>% 
+  filter(!is.na(opa_account_num)) %>% 
+  mutate(rental_license = 1)  
+
+properties_rental <- properties_sf %>%
+  mutate(parcel_number = as.character(parcel_number))%>%
+  left_join(rental_license, by = c("parcel_number" = "opa_account_num"))%>%
+  mutate(rental_license = replace_na(rental_license, 0))
+
+ggplot(properties_rental, aes(x = factor(rental_license), fill = factor(exemption))) +
+  geom_bar(position = "dodge") +  
+  geom_text(stat = "count", aes(label = ..count.., color = factor(exemption)),  
+            position = position_dodge(width = 0.9),  
+            vjust = -0.5,  
+            size = 3) +  
+  scale_fill_manual(values = c("0" = "#e42524", "1" = "#00ADA9"),  
+                    labels = c("0" = "No Exemption", "1" = "With Exemption")) +  
+  scale_color_manual(values = c("0" = "#e42524", "1" = "#00ADA9")) +  
+  labs(title = "Rental Licenses Metrics by Homestead Exemption Status",
+       x = "Rental Licenses",
+       y = "Count",
+       fill = "Exemption Status") +
+  theme_minimal() +
+  theme(legend.position = "none") 
+
+#join to dataset
+residential_properties <- residential_properties %>%
+  left_join(properties_rental%>%
+              st_drop_geometry()%>%
+              dplyr::select(objectid,rental_license), 
+            by = c("objectid" = "objectid"))
+```
+
+#### Commertial Licenses {.unnumbered}
+
+```{r Business License Exclude Rental, echo=FALSE, message=FALSE, warning=FALSE, fig.show='hold'}
+commercial_license<-business_license%>%
+  filter(licensestatus %in% c("Active"))%>%
+  filter(licensetype %in% c(
+    "Food Caterer",
+    "Food Establishment, Retail Perm Location (Large)",
+    "Food Establishment, Retail Permanent Location",
+    "Food Manufacturer / Wholesaler",
+    "Food Preparing and Serving",
+    "Food Preparing and Serving (30+ SEATS)",
+    "Motor Vehicle Repair / Retail Mobile Dispensing",
+    "Pawn Shop",
+    "Precious Metal Dealer",
+    "Public Garage / Parking Lot",
+    "Residential Property Wholesaler",
+    "Tire Dealer",
+    "Tow Company",
+    "Vacant Commercial Property"
+  ))%>%
+  dplyr::select(opa_account_num)%>%
+  st_drop_geometry()%>%
+  distinct() %>% 
+  filter(!is.na(opa_account_num)) %>% 
+  mutate(commercial_license = 1) 
+
+properties_commercial <- properties_sf %>%
+  mutate(parcel_number = as.character(parcel_number))%>%
+  left_join(commercial_license, by = c("parcel_number" = "opa_account_num"))%>%
+  mutate(commercial_license = replace_na(commercial_license, 0))
+
+ggplot(properties_commercial, aes(x = factor(commercial_license), fill = factor(exemption))) +
+  geom_bar(position = "dodge") +  
+  geom_text(stat = "count", aes(label = ..count.., color = factor(exemption)),  
+            position = position_dodge(width = 0.9),  
+            vjust = -0.5,  
+            size = 3) +  
+  scale_fill_manual(values = c("0" = "#e42524", "1" = "#00ADA9"),  
+                    labels = c("0" = "No Exemption", "1" = "With Exemption")) +  
+  scale_color_manual(values = c("0" = "#e42524", "1" = "#00ADA9")) +  
+  labs(title = "Commercial Licenses Metrics by Homestead Exemption Status",
+       x = "Commercial Licenses (Exclude Rental)",
+       y = "Count",
+       fill = "Exemption Status") +
+  theme_minimal() +
+  theme(legend.position = "none") 
+
+#join to dataset
+residential_properties <- residential_properties %>%
+  left_join(properties_commercial%>%
+              st_drop_geometry()%>%
+              dplyr::select(objectid,commercial_license), 
+            by = c("objectid" = "objectid"))
+```
+
+### Historical Propertiy Characteristics  {.tabset}
+
+#### Market Value {.unnumbered} 
+
+We used residential property assessment data from 2015 to 2025 to examine the historical market value characteristics of properties with and without exemptions. We calculated both the average market value and the standard deviation of market value for exempt versus non-exempt properties.
+
+The results, shown in the following chart, indicate that properties without exemptions have significantly higher average market values ($304,731 compared to $182,169) and higher variability ($78,513 versus $42,479). This suggests that non-exempt properties tend to have higher market values and experience greater market fluctuations over time. In contrast, exempt properties have lower but much more stable market values, meaning homeowners without exemptions are less vulnerable to sudden market shocks.
+
+```{r Market_Value, echo=FALSE, message=FALSE, warning=FALSE, fig.show='hold'}
+# Load and inspect the assessments dataset
+assessments2 <- fread("Data/assessments.csv")
+
+# Merge properties and assessments data by parcel_number
+cleaned_properties <- filtered_properties %>%
+  dplyr::select(parcel_number, exemption, is_residential, shape)
+assessment_combined <- assessments2 %>%
+  left_join(cleaned_properties, by = "parcel_number")
+
+# Filter the combined dataset to include only residential properties
+residential_assessment_combined <- assessment_combined %>%
+  filter(is_residential == 1)
+
+# Summarize key metrics for each parcel: mean, growth rate, and standard deviation
+residential_summary <- residential_assessment_combined %>%
+  group_by(parcel_number) %>%
+  summarise(
+    avg_market_value = mean(market_value, na.rm = TRUE),
+    sd_market_value = sd(market_value, na.rm = TRUE)
+  )
+
+# Add exemption and residential status to the summary dataset
+residential_summary <- residential_summary %>%
+  left_join(
+    residential_assessment_combined %>%
+      dplyr::select(parcel_number, exemption, is_residential, shape) %>%
+      distinct(parcel_number, .keep_all = TRUE),  # Keep one row per parcel_number
+    by = "parcel_number"
+  )
+
+#join to dataset
+residential_properties <- residential_properties %>%
+  left_join(residential_summary %>%
+              dplyr::select(parcel_number,avg_market_value,sd_market_value), 
+            by = c("parcel_number" = "parcel_number"))
+
+# Analysis by Exemption Status
+# Summarize metrics by exemption status
+residential_summary_analysis <- residential_summary %>%
+  group_by(exemption) %>%
+  summarise(
+    avg_market_value = mean(avg_market_value, na.rm = TRUE),
+    sd_market_value = mean(sd_market_value, na.rm = TRUE)
+  ) 
+
+summary_filtered <- residential_summary_analysis %>%
+  pivot_longer(
+    cols = -exemption, 
+    names_to = "metric", 
+    values_to = "value"
+  )%>%
+  filter(metric %in% c("avg_market_value", "sd_market_value"))
+
+ggplot(summary_filtered, aes(x = metric, y = value, fill = as.factor(exemption), color = as.factor(exemption))) +
+  geom_bar(stat = "identity", position = position_dodge(width = 0.7), width = 0.6, alpha = 0.85) + 
+  geom_text(aes(label = round(value, 0)), 
+            position = position_dodge(width = 0.7), 
+            vjust = -0.5, size = 4.5, fontface = "bold") + 
+  ylim(0, max(summary_filtered$value) * 1.2) +
+  scale_fill_manual(values = colors2, labels = c("No Exemption", "With Exemption")) +
+  scale_color_manual(values = colors2, guide = "none") +  
+  labs(title = "Average and Standard Deviation of Market Value (2015-2025)",
+       subtitle = "Comparison of Properties With and Without Exemption",
+       x = "Metric", 
+       y = "Value ($)", 
+       fill = "Exemption Status") +
+  theme_minimal(base_size = 14) +
+  theme(axis.text.x = element_text(angle = 0, vjust = 0.5, hjust = 0.5, face = "bold"),
+        axis.title = element_text(face = "bold"),
+        legend.position = "top",
+        plot.title = element_text(face = "bold", size = 16),
+        plot.subtitle = element_text(size = 13, color = "gray40"))
+
 ```
 
 
-### Historical Propertiy Characteristics
+#### Yearly Trends in Residential Data {.unnumbered}
+
+Using residential property assessment data from 2015 to 2025, we also analyzed yearly changes in taxable building values to explore typical property tax growth patterns as well as shifts triggered by significant economic events. 
+
+By plotting the yearly taxable building values for exempt and non-exempt properties from 2015 to 2025, we observed that non-exempt properties experienced a significantly faster increase in taxable values compared to exempt properties. This long-term trend indicates that non-exempt homeowners have been more exposed to steadily rising tax burdens over time. Moreover, the sharper changes observed between 2022 and 2025 further highlight how non-exempt properties responded more sensitively to broader economic shifts, whereas exempt properties remained relatively insulated, maintaining a more stable taxation trajectory.
+
+```{r Yearly Trends, echo=FALSE, message=FALSE, warning=FALSE, fig.show='hold'}
+yearly_residential_data <- assessments2 %>%
+  inner_join(cleaned_properties, by = "parcel_number") %>%
+  filter(is_residential == 1)  # Keep only residential properties
+
+# Summarize yearly residential data by exemption status
+yearly_residential_summary <- yearly_residential_data %>%
+  group_by(year, exemption) %>%
+  summarise(taxable_building = mean(taxable_building, na.rm = TRUE),
+    .groups = "drop"
+  )
+
+yearly_residential_summary %>%
+  filter(year >= 2015) %>%
+  ggplot(aes(x = year, y = taxable_building, color = as.factor(exemption))) +
+    geom_line(size = 1.2) +
+    geom_point(size = 2) +
+    scale_x_continuous(breaks = seq(2015, max(yearly_residential_summary$year), by = 1)) +
+    scale_color_manual(values = colors2, labels = c("No Exemption", "With Exemption")) +
+    labs(title = "Yearly Change in Taxable Building Value",
+         x = "Year", y = "Taxable Building Value", color = "Exemption Status") +
+    theme_minimal() +
+    theme(axis.text.x = element_text(angle = 45, hjust = 1))
+```
 
 
-Past Average Market Value​ Market Value Volatility​ Frequency of past transactions​Type of property deed​
+#### Property Transfer Types {.unnumbered}
+
+To better understand the characteristics of exempt properties, we also explored various aspects of property transfer information. Here are some key findings.
+
+We analyzed exemption rates across different deed types and found that properties associated with "Deed - Deceased" and "Satisfaction of Mortgage" exhibited notably higher exemption rates. These deed types typically reflect intra-family transfers, inheritance, or mortgage settlements, aligning with common pathways to exemption eligibility. Logistic regression analysis confirmed deed type as a significant predictor of exemption status. Selected deed types can be encoded as binary features for use in predictive modeling.
+
+```{r transfer_types_none, eval=FALSE}
+transfers2 <- fread("Data/RTT_SUMMARY.csv")
+residential_properties <- cleaned_properties %>%
+  filter(is_residential == 1)
+residential_transfers <- residential_properties %>%
+  left_join(transfers2, by = c("parcel_number" = "opa_account_num"))
+
+residential_transfers <- residential_transfers %>%
+  mutate(document_type = ifelse(is.na(document_type), "Unknown", document_type))
+
+exemption_by_document_type <- residential_transfers %>%
+  group_by(document_type) %>%
+  summarise(
+    total_count = n(),
+    exemption_count = sum(exemption == 1),
+    exemption_proportion = exemption_count / total_count * 100
+  ) %>%
+  arrange(desc(exemption_proportion))
+
+## binomial model:DEED - DECEASED, SATISFACTION OF MORTGAGE, MORTGAGE, ASSIGNMENT OF MORTGAGE
+document_exemption_model <- glm(exemption ~ document_type, data = residential_transfers, family = binomial)
+```
+
+```{r transfer_types, echo=FALSE, message=FALSE, warning=FALSE, fig.show='hold'}
+transfers_new <- fread("residential_transfers_cleaned.csv") %>% 
+  rename(has_recent_transfer = has_recent_transfer.x)
+
+residential_properties <- residential_properties %>%
+  left_join(
+    transfers_new %>%
+      dplyr::select(parcel_number, has_recent_transfer, latest_document_type),
+    by = c("parcel_number" = "parcel_number")
+  )%>%
+  mutate(has_recent_transfer = ifelse(is.na(has_recent_transfer), 0, has_recent_transfer))%>%
+  mutate(latest_document_type = ifelse(is.na(latest_document_type), "none", latest_document_type))%>%
+  mutate(latest_document_type_DEED = case_when(
+    latest_document_type == "DEED" ~ "DEED",
+    latest_document_type == "none" ~ "none",
+    latest_document_type == "SATISFACTION OF MORTGAGE" ~ "SATISFACTION OF MORTGAGE",
+    TRUE ~ "others"
+  ))
+
+ggplot(residential_properties, aes(x = latest_document_type_DEED, fill = as.factor(exemption))) +   
+  geom_bar(position = "dodge") + 
+  scale_fill_manual(values = colors2) +
+  labs(x = "Property Transfer Types", y = "Count",
+       title = "Latest Property Transfer Types") +
+  theme_minimal() +
+  theme(legend.position = "bottom",
+        axis.text.x = element_text(angle = 60, hjust = 1, size = 6)) +
+  scale_x_discrete(labels = function(x) str_trunc(x, 10))
+```
+
+#### Recently Transfer {.unnumbered}
+
+On average, 20.07% of properties without a homestead exemption had a transfer in the past two years, compared to 16.17% of those with an exemption. This indicates that properties without exemptions tend to have a slightly higher likelihood of recent transactions.
 
 
-### Neighborhood Demographic Characteristics
+```{r Recent_Transfer_none, eval=FALSE}
+# Convert recording_date to Date format
+residential_transfers <- residential_transfers %>%
+  mutate(recording_date = as.Date(recording_date, format="%Y-%m-%d"))
 
-Property-Related: Median Home Value, Overall Vacancy Rate, Owner Occupancy Rate, Mortgage Burden Rate​
+current_year <- year(Sys.Date())
 
-Owner-Related: Young Owner Rate, Senior Owner Rate, ​
+# Step 1: Find the most recent transfer year for each property
+recent_transfers <- residential_transfers %>%
+  filter(!is.na(recording_date)) %>%
+  group_by(parcel_number) %>%
+  summarise(
+    latest_transfer_year = max(year(recording_date), na.rm = TRUE),  # Most recent transfer year
+    .groups = "drop"
+  ) %>%
+  mutate(
+    latest_transfer_year = ifelse(is.infinite(latest_transfer_year), NA, latest_transfer_year)  # Handle infinite values
+  )
 
-Demographics: Limited English Rate,  Diversity Index, Family Household Rate, Poverty Rate​
+# Step 2: Create a binary variable for recent transfers (within last 2 years)
+recent_transfers <- recent_transfers %>%
+  mutate(has_recent_transfer = ifelse(!is.na(latest_transfer_year) & latest_transfer_year >= (current_year - 2), 1, 0))
 
-### Neighborhood Economic Conditions
+# Step 3: Merge this information into `residential_transfers_cleaned`
+residential_transfers_cleaned <- residential_transfers_cleaned %>%
+  left_join(recent_transfers, by = "parcel_number")
 
-Percentage of properties with unpaid tax balance per census tract. 
+```
 
+```{r recent_transfer, echo=FALSE, message=FALSE, warning=FALSE, fig.show='hold'}
+#Recent(2y) Transfer Analysis
+ggplot(residential_properties, aes(x = factor(has_recent_transfer), fill = factor(exemption))) +
+  geom_bar(position = "dodge") +  
+  geom_text(stat = "count", aes(label = ..count.., color = factor(exemption)),  
+            position = position_dodge(width = 0.9),  
+            vjust = -0.5,  
+            size = 3) +  
+  scale_fill_manual(values = c("0" = "#e42524", "1" = "#00ADA9"),  
+                    labels = c("0" = "No Exemption", "1" = "With Exemption")) +  
+  scale_color_manual(values = c("0" = "#e42524", "1" = "#00ADA9")) +  
+  labs(title = "Recent Transfer Metrics by Homestead Exemption Status",
+       x = "Recent(2y) Transfer",
+       y = "Count",
+       fill = "Exemption Status") +
+  theme_minimal() +
+  theme(legend.position = "none") 
+```
+
+
+### Neighborhood Demographic Characteristics {.tabset}
+
+#### Median Home Value {.unnumbered}
+
+```{r median_home_value, echo=FALSE, message=FALSE, warning=FALSE, fig.show='hold'}
+#join to dataset
+# Extract column names for index 81 to 112
+selected_columns <- names(properties_tract)[c(1, 81:113)]
+# Perform the left join
+residential_properties <- residential_properties %>%
+  left_join(
+    properties_tract %>% dplyr::select(all_of(selected_columns)),
+    by = c("objectid" = "objectid")
+  )
+
+ggplot(residential_properties, 
+       aes(x = median_home_value, color = as.factor(exemption))) +
+  geom_density(size = 1) +
+  scale_color_manual(values = colors2) +
+  labs(title = "Median Home Value per Census Tract",
+       x = "Median Home Value",
+       y = "Density",
+       color = "Exemption") +
+  theme_minimal() +
+  theme(legend.position = "bottom")
+
+```
+
+#### Owner Occupancy {.unnumbered}
+
+Notably, higher rates of owner occupancy don't automatically translate to higher program participation. This suggests that other factors beyond home ownership - such as awareness of the program, ease of enrollment, or demographic characteristics - may play more significant roles in determining participation rates. These insights can help guide targeted outreach efforts to increase program enrollment among eligible homeowners who are currently missing out on this tax benefit.
+
+```{r owner_occupancy, echo=FALSE, message=FALSE, warning=FALSE, fig.show='hold'}
+ggplot(residential_properties, 
+       aes(x = owner_occ_rate, color = as.factor(exemption))) +
+  geom_density(size = 1) +
+  scale_color_manual(values = colors2) +
+  labs(title = "Median Home Value per Census Tract",
+       x = "Median Home Value",
+       y = "Density",
+       color = "Exemption") +
+  theme_minimal() +
+  theme(legend.position = "bottom")
+```
+
+#### Zoning Analysis  {.unnumbered}
+
+```{r zoning, echo=FALSE, message=FALSE, warning=FALSE, fig.show='hold'}
+# Data frame of zoning types
+zoning_types <- data.frame(
+  Type = c(
+    "Single Family Detached",
+    "Single Family Attached",
+    "Two-Family Attached",
+    "Multi-Family",
+    "Residential Mixed-Use",
+    "Commercial Mixed-Use",
+    "Industrial Residential Mixed-Use"
+  ),
+  Codes = c(
+    "RSD1, RSD2, RSD3",
+    "RSA1, RSA2, RSA3, RSA4, RSA5, RSA6",
+    "RTA1",
+    "RM1, RM2, RM3, RM4",
+    "RMX1, RMX2, RMX3",
+    "CMX1, CMX2, CMX2.5, CMX3, CMX4, CMX5",
+    "IRMX"
+  ),
+  Description = c(
+    "Detached houses on individual lots",
+    "Attached and semi-detached houses on individual lots",
+    "Two-family, semi-detached houses on individual lots",
+    "Moderate to high-density multi-unit residential buildings",
+    "Residential and mixed-use development, including master plan development",
+    "Neighborhood to regional-serving mixed-use development",
+    "Mix of low-impact industrial, artisan industrial, residential, and neighborhood commercial uses"
+  )
+)
+
+properties_filtered <- filtered_properties %>%
+  dplyr::select(
+    zoning,
+    homestead_exemption,
+    is_residential,
+    census_tract,
+    shape
+  )
+
+# First create a zoning type classification
+filtered_properties <- filtered_properties %>% 
+  mutate(
+    zoning_type = case_when(
+      zoning %in% c("RSD1", "RSD2", "RSD3") ~ "Single Family Detached",
+      zoning %in% c("RSA1", "RSA2", "RSA3", "RSA4", "RSA5", "RSA6") ~ "Single Family Attached",
+      zoning %in% c("RTA1") ~ "Two-Family Attached",
+      zoning %in% c("RM1", "RM2", "RM3", "RM4") ~ "Multi-Family",
+      zoning %in% c("RMX1", "RMX2", "RMX3") ~ "Residential Mixed-Use",
+      zoning %in% c("CMX1", "CMX2", "CMX2.5", "CMX3", "CMX4", "CMX5") ~ "Commercial Mixed-Use",
+      zoning %in% c("IRMX") ~ "Industrial Residential Mixed-Use",
+      TRUE ~ "Other"
+    ),
+    is_residential = ifelse(zoning_type != "Other", 1, 0)
+  )
+
+
+zoning_summary <- filtered_properties %>%
+  filter(is_residential == 1) %>%
+  group_by(zoning_type) %>%
+  summarise(
+    total_properties = n(),
+    homestead_count = sum(homestead_exemption > 0, na.rm = TRUE),
+    pct_homestead = (homestead_count / total_properties) * 100
+  ) %>%
+  arrange(desc(pct_homestead))
+
+
+# Homestead rates by zoning type
+zoning_summary_chart <- ggplot(zoning_summary, 
+       aes(x = reorder(zoning_type, -pct_homestead), 
+           y = pct_homestead)) +
+  geom_bar(stat = "identity", 
+           fill = "#00ADA9",
+           alpha = 0.8) +
+  geom_text(aes(label = round(pct_homestead,1)), 
+            vjust = -0.5,
+            size = 3) +
+  theme_minimal() +
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1),
+    panel.grid.major.x = element_blank(),
+    plot.title = element_text(size = 18, face = "bold"),
+    plot.subtitle = element_text(size = 14),
+    axis.title = element_text(size = 14),
+    axis.text = element_text(size = 14),
+    legend.text = element_text(size = 14)
+  ) +
+  labs(
+    title = "Homestead Exemption Rates by Zoning Category in Philadelphia",
+    subtitle = "Residential and Mixed-Use Districts Only",
+    x = "Zoning Category",
+    y = "Percentage with Homestead Exemption",
+    caption = "Source: Philadelphia Property Data, 2025"
+  ) +
+  scale_y_continuous(
+    limits = c(0, max(zoning_summary$pct_homestead) * 1.1),
+    labels = function(x) paste0(x, "%")
+  )
+
+zoning_summary_chart
+```
+
+#### Tax Balance Rate {.unnumbered}
+
+Tax balance represents the total tax billing in a census tract, including principal, penalties, and interest from previous years. While not explicitly stated in the eligibility criteria for the Homestead Exemption, it may affect homeowners' trust and willingness to apply, influencing the possibility of approval. Additionally, the total tax balance in a census tract can serve as an indicator of broader socioeconomic characteristics, such as income levels, educational attainment, and English proficiency, all of which may impact outreach efforts for the Homestead Exemption program.
+
+In our model, we include the percentage of properties that owe tax balances of the census tract where a property is located.
+
+```{r tax_balance, echo=FALSE, message=FALSE, warning=FALSE, fig.show='hold'}
+balances <- read.csv("Data/real_estate_tax_balances_census_tract.csv")
+
+balance_sf <- census_tracts_enriched %>% 
+  left_join(balances %>% dplyr::select(census_tract,balance,num_props), 
+            by = c("GEOID" = "census_tract")) %>%
+  mutate(
+    num_props = ifelse(is.na(total_properties), NA, num_props),
+    balance = ifelse(is.na(total_properties), NA, balance)
+  )
+
+#distinct
+balance_distinct <- balances %>%
+  mutate(census = as.numeric(substr(census_tract, 6, 9)))%>%
+  st_drop_geometry()%>%
+  group_by(census) %>% 
+  summarise(tax_props=sum(num_props,na.rm=TRUE)) %>%
+  ungroup()
+
+properties_number<-properties_sf%>%
+  dplyr::select(census_tract,exemption,parcel_number)%>%
+  mutate(prop=1)%>%
+  st_drop_geometry()%>%
+  group_by(census_tract)%>%
+  summarise(total_props=sum(prop))%>%
+  ungroup()
+
+properties_sf_number<-properties_sf%>%
+  left_join(properties_number,by="census_tract")
+
+properties_balance <- properties_sf_number %>%
+  dplyr::select(objectid, census_tract,exemption,parcel_number,total_props)%>%
+  left_join(balance_distinct, by = c("census_tract" = "census"))%>%
+  mutate(tax_props=replace(tax_props,is.na(tax_props),0))%>%
+  mutate(balance_rate=tax_props/total_props)%>%
+  filter(!is.na(census_tract)) 
+
+#join to dataset
+residential_properties <- residential_properties %>%
+  left_join(properties_balance%>%
+              st_drop_geometry()%>%
+              dplyr::select(objectid,balance_rate), 
+            by = c("objectid" = "objectid"))
+
+ggplot(residential_properties, 
+       aes(x = balance_rate, color = as.factor(exemption))) +
+  geom_density(size = 1) +
+  scale_color_manual(values = colors2) +
+  labs(title = "Pertentage of Properties In Tax Balance per Census Tract",
+       x = "Balance Rate",
+       y = "Density",
+       color = "Exemption") +
+  theme_minimal() +
+  theme(legend.position = "bottom")
+```
+
+```{r select_variable,eval=FALSE}
+properties_model <- residential_properties %>% 
+  dplyr::select(objectid, census_tract, geographic_ward, neighborhood, zip_code, 
+                x_2272, y_2272, lon_4326, lat_4326, exemption, same_address,
+                is_deep, large_area,owner_count, rental_license, commercial_license, 
+                balance_rate, avg_market_value, sd_market_value,
+                has_recent_transfer, latest_document_type,latest_document_type_DEED,
+                pct_foreign_born, overall_vacancy_rate, poverty_rate, bach_degree_rate,
+                young_owner_rate,senior_owner_rate,family_hh_rate, limited_english_rate,
+                diversity_index, median_income, owner_occ_rate,
+                cost_burden_rate,mortgage_burden_rate,median_home_value)
+```
+
+# Modeling
+
+## Correlation Matrix
+
+```{r read_data , echo=FALSE, message=FALSE, warning=FALSE, fig.show='hold'}
+properties_model <- fread("xgb_full_pred.csv")
+
+variables4 <- c("same_address","rental_license",
+                "avg_market_value","sd_market_value","lag_exemption","balance_rate","senior_owner_rate","latest_document_type_DEED","median_home_value", "lon_4326","owner_occ_rate","has_recent_transfer","geographic_ward", "poverty_rate","lat_4326")
+
+```
+
+```{r Correlation Matrix, echo=FALSE, message=FALSE, warning=FALSE, fig.show='hold'}
+numericVars <- as.data.frame(properties_model) %>%
+  dplyr::select(variables4
+                ) %>%  
+  select_if(is.numeric) %>% 
+  na.omit() 
+
+correlation_matrix <- cor(numericVars)
+
+
+numericVars %>% 
+  correlate() %>% 
+  autoplot() +
+  geom_tile(aes(fill = r), color = "#e9e9e9") +
+  geom_text(aes(label = round(r,digits=2)), size = 3) +
+  scale_fill_gradient2(low =  "#00ADA9", mid = "white", high =  "#e42524",
+                       midpoint = 0, limits = c(-1, 1),
+                       breaks = seq(-1, 1, by = 0.2)) +
+  labs(title = "Correlation across numeric variables")  # Set plot title
+```
+
+## Splite Dataset
+
+```{r splite, eval=FALSE}
+properties_model<- properties_model%>%
+  mutate(property_ID = seq(1:n()))%>%
+  dplyr::select(all_of(variables4), exemption, zip_code)%>%
+  st_drop_geometry()
+
+data_split <- initial_split(properties_model, strata = "zip_code", prop = 0.75)
+properties_train <- training(data_split)
+properties_test  <- testing(data_split)
+```
+
+## Add Spatial Lag For Training
+To prevent data leakage, spatial lag variables need to be calculated separately for the training and test datasets. If spatial information from the test set is used during the training phase, the model would "see" part of the test data's structure in advance, leading to overfitting and failing to reflect the true generalization ability of the model.
+
+Therefore, in this analysis, we first split the data and then independently calculate the spatial adjacency relationships and spatial lag values for each subset. This approach not only better reflects real-world scenarios (where the model only has access to the training data for prediction) but also improves the accuracy and reliability of model evaluation.
+
+```{r sl, eval=FALSE}
+library(spdep)
+library(dplyr)
+library(zoo)
+
+coords_train <- properties_train %>% 
+  dplyr::select(lon_4326, lat_4326) %>% 
+  data.matrix()
+
+knn_nb_train <- knn2nb(knearneigh(coords_train, k = 4))
+lw_train <- nb2listw(knn_nb_train, style = "W")
+
+properties_train$lag_exemption <- lag.listw(lw_train, properties_train$exemption)
+mean_lag_train <- mean(properties_train$lag_exemption, na.rm = TRUE)
+properties_train$lag_exemption[is.na(properties_train$lag_exemption)] <- mean_lag_train
+
+coords_test <- properties_test %>% 
+  dplyr::select(lon_4326, lat_4326) %>% 
+  data.matrix()
+
+knn_nb_test <- knn2nb(knearneigh(coords_test, k = 4))
+lw_test <- nb2listw(knn_nb_test, style = "W")
+
+properties_test$lag_exemption <- lag.listw(lw_test, properties_test$exemption)
+mean_lag_test <- mean(properties_test$lag_exemption, na.rm = TRUE)
+properties_test$lag_exemption[is.na(properties_test$lag_exemption)] <- mean_lag_test
+```
+
+## Cross Validation
+
+```{r cv, eval=FALSE}
+## LOGOCV on Neighborhood with group_vfold_cv()
+cv_splits_geo <- group_vfold_cv(properties_train,  
+                                group = "geographic_ward")
+print(cv_splits_geo)
+
+# Feature Creation
+model_rec <- recipe(exemption ~ ., data = properties_train)  %>%
+  step_dummy(all_nominal_predictors()) %>%  
+  step_zv(all_predictors()) %>%
+  step_center(all_numeric_predictors()) %>%
+  step_scale(all_numeric_predictors())
+```
+
+## XGBoost Model
+
+The grid search is conducted with the best model selected based on having the lowest Root Mean Squared Error.
+
+```{r XGBoost, eval=FALSE}
+## Model specifications
+XGB_plan <- boost_tree() %>%
+  set_args(mtry  = tune()) %>%
+  set_args(min_n = tune()) %>%
+  #set_args(learn_rate = tune())%>%
+  #set_args(tree_depth = tune())%>%
+  set_args(trees = 200) %>% 
+  set_engine("xgboost") %>% 
+  set_mode("regression") #"classification"
+
+
+# Hyperparameter grid for glmnet (penalization)
+xgb_grid <- expand.grid(
+  mtry = c(3, 7,10),  
+  min_n = c(1,5,10)
+  #, learn_rate = c(0.01, 0.3),tree_depth = c(3, 5, 7, 10)  
+)
+
+# create workflow
+xgb_wf <-
+  workflow() %>% 
+  add_recipe(model_rec) %>% 
+  add_model(XGB_plan)
+
+
+# fit model to workflow and calculate metrics
+control <- control_resamples(save_pred = TRUE, verbose = TRUE)
+metrics <- metric_set(rmse, rsq, mae) #accuracy, sensitivity, specificity
+xgb_tuned <- xgb_wf %>%
+  tune::tune_grid(.,
+                  resamples = cv_splits_geo,
+                  grid      = xgb_grid,
+                  control   = control,
+                  metrics   = metrics)
+
+## metrics across grid
+collect_metrics(xgb_tuned)
+
+## 'Best' by some metric and margin
+show_best(xgb_tuned, metric = "rsq", n = 15)
+
+xgb_best_params    <- select_best(xgb_tuned, metric = "rmse"   )
+
+xgb_best_wf    <- finalize_workflow(xgb_wf, xgb_best_params)
+
+# last_fit() emulates the process where, after determining the best model, the final fit on the entire training set is needed and is then evaluated on the test set.
+
+xgb_val_fit_geo <- xgb_best_wf %>% 
+  last_fit(split     = data_split,
+           control   = control,
+           metrics   = metrics)
+
+# Pull best hyperparam preds from out-of-fold predictions
+xgb_best_OOF_preds <- collect_predictions(xgb_tuned) %>% 
+  filter(mtry  == xgb_best_params$mtry[1] & min_n == xgb_best_params$min_n[1])
+
+# collect validation set predictions from last_fit model
+xgb_val_pred_geo    <- collect_predictions(xgb_val_fit_geo)
+```
+
+
+```{r Influence of vairables, eval=FALSE}
+# Influence of vairables
+xgb_final_wf <- finalize_workflow(xgb_wf, xgb_best_params)
+xgb_final_fit <- fit(xgb_final_wf, data = properties_train)
+
+xgb_model <- extract_fit_parsnip(xgb_final_fit)$fit
+
+xgb_imp <- xgboost::xgb.importance(model = xgb_model)
+
+xgb_imp_sorted <- xgb_imp %>% 
+  arrange(desc(Gain))
+
+print(xgb_imp_sorted)
+
+xgboost::xgb.plot.importance(xgb_imp, top_n = 30, main = "Top 20 Most Influential Variables")
+
+```
+
+## Pridict 
+
+```{r predict,eval=FALSE}
+xgb_full_pred4 <- xgb_best_wf %>% 
+  fit(data = properties_model_4) %>%
+  predict(new_data = properties_model_4) %>%
+  bind_cols(properties_model_4)
+
+xgb_full_pred4 <- xgb_full_pred4 %>%
+  mutate(exemption.pred4 = ifelse(.pred >= 0.5, "1", "0"))%>%
+  rename(.pred4=.pred)
+```
+
+```{r PLOT result}
+
+ggplot(properties_model, aes(x = .pred4, fill = as.factor(exemption))) + 
+  geom_density() +
+  facet_grid(exemption ~ .) +
+  scale_fill_manual(values = colors2) +
+  labs(x = "Probabilities", y = "Density of probabilities",
+       title = "Distribution of predicted probabilities by observed outcome",
+             subtitle = "No gentrification = 0, Gentrification = 1") +
+  theme_minimal() +
+  theme(legend.position = "none") 
+
+```
+
+```{r}
+properties_model$exemption.pred4 <- factor(as.character(properties_model$exemption.pred4), levels = c("0", "1"))
+properties_model$exemption<- factor(as.character(properties_model$exemption),       levels = c("0", "1"))
+
+caret::confusionMatrix(properties_model$exemption.pred4, properties_model$exemption, 
+                       positive = "1")
+```
+
+
+# Predict on False Positive
+
+```{r}
+properties_model <- properties_model %>%
+  mutate(exemption.pred0.5 = ifelse(.pred4 >= 0.5, "1", "0"),
+         exemption.pred0.6 = ifelse(.pred4 >= 0.6, "1", "0"),
+         exemption.pred0.7 = ifelse(.pred4 >= 0.7, "1", "0"),
+         exemption.pred0.8 = ifelse(.pred4 >= 0.8, "1", "0"),
+         exemption.pred0.9 = ifelse(.pred4 >= 0.9, "1", "0"))
+```
+
+```{r}
+false_positive <- properties_model %>%
+  filter(exemption == 0, exemption.pred0.5 == 1)
+
+fp_sf <- st_as_sf(false_positive, coords = c("lon_4326", "lat_4326"), crs = 4326)
+
+#shapefile_path <- "~/Downloads/tl_2020_42101_tract20/tl_2020_42101_tract20.shp"
+
+#philly_shapefile <- st_read(shapefile_path)
+```
+
+# Cost-Benefit Analysis
+
+
+
+# Application Development
+
+# Conclusion
 
