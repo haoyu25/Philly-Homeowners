@@ -1,7 +1,7 @@
 ---
-title: "Philly_Homestead_Exemption_Final"
+title: "Optimizing Entitlement Assistance Outreach to Homeowners"
 author: "Claudia Low, Haoyu Zhu, Rachel Midgett, Wenjun Zhu"
-date: "2025-04-15"
+date: "2025-05-06"
 output:
   rmdformats::material:
     code_download: true
@@ -11,7 +11,6 @@ output:
 ---
 
 ```{r setup, include=FALSE}
-
 knitr::opts_chunk$set(echo = FALSE, message = FALSE, warning = FALSE, results='hide', cache = TRUE)
 
 library(tidycensus)
@@ -77,6 +76,18 @@ map_theme <- theme_minimal() +
     axis.text = element_blank(),
     axis.title = element_blank(),
     panel.grid = element_blank()
+  )
+
+base_theme <- theme_minimal(base_size = 12) +
+  theme(
+    panel.grid.major = element_line(color = "grey90"),
+    panel.grid.minor = element_blank(),
+    legend.position = "bottom",
+    plot.title = element_text(size = 16, face = "bold"), 
+    plot.subtitle = element_text(size = 12),
+    axis.title = element_text(size = 10),
+    axis.text = element_text(size = 10),
+    legend.text = element_text(size = 10)
   )
 
 options(tigris_use_cache = TRUE)
@@ -232,14 +243,10 @@ census_tracts_filtered <- census_tracts_enriched %>%
 census_tracts_invalid <- census_tracts_enriched %>%
   filter(pop_density == 0 | total_properties < 30)  # Include low property counts in "invalid"
 
-# Create histogram of homestead exemption distribution
-census_hist <- ggplot(census_tracts_enriched %>% 
-       filter(pop_density > 0), # Filter out zero population tracts
+ggplot(census_tracts_enriched %>% filter(pop_density > 0),
        aes(x = pct_homestead)) +
   geom_histogram(
-    binwidth = 5,
-    fill = "#00ADA9",
-    color = "white"
+    binwidth = 5, fill = "#00ADA9", color = "white"
   ) +
   labs(
     title = "Distribution of Homestead Exemption Rates Across Philadelphia Census Tracts",
@@ -247,17 +254,9 @@ census_hist <- ggplot(census_tracts_enriched %>%
     x = "Percentage of Properties with Homestead Exemption",
     y = "Number of Census Tracts"
   ) +
-  theme_minimal() +
-  theme(
-    plot.title = element_text(size = 18, face = "bold"),
-    plot.subtitle = element_text(size = 14),
-    axis.title = element_text(size = 14),
-    axis.text = element_text(size = 14),
-    legend.text = element_text(size = 14)
-  ) +
+  base_theme +
   scale_x_continuous(breaks = seq(0, 100, by = 10))
 
-census_hist
 ```
 The distribution shows a roughly normal shape with most tracts clustered between 30-50%
 There's a notable drop-off below 30% in the number of tracts
@@ -276,10 +275,10 @@ custom_colors <- c("<20%" = "#e42524",
                    "50-60%" = "#41c3b4",    
                    ">60%" = "#00ADA9")
 
-homestead_pattern <- ggplot(census_tracts_enriched %>% 
-                           mutate(pct_homestead = case_when(
-                             pop_density < 2000 | total_properties < 100 ~ NA_real_,
-                             TRUE ~ pct_homestead))) +
+ggplot(census_tracts_enriched %>%
+         mutate(pct_homestead = case_when(
+           pop_density < 2000 | total_properties < 100 ~ NA_real_,
+           TRUE ~ pct_homestead))) +
   geom_sf(aes(fill = cut(pct_homestead, 
               breaks = c(0, 20, 30, 40, 50, 60, 100),
               labels = c("<20%", "20-30%", "30-40%", "40-50%", "50-60%", ">60%"))),
@@ -295,34 +294,21 @@ homestead_pattern <- ggplot(census_tracts_enriched %>%
     subtitle = "By Census Tract",
     caption = "Gray tracts indicate population density < 2,000 per sq. mile or fewer than 100 properties"
   ) +
-  theme_minimal() +
+  base_theme +
   theme(
-    panel.grid = element_blank(),
-    plot.title = element_text(size = 18, face = "bold"),
-    plot.subtitle = element_text(size = 14),
-    axis.title = element_text(size = 14),
-    axis.text = element_blank(),
-    legend.text = element_text(size = 14)
+    panel.grid = element_blank(), 
+    axis.text = element_blank(), 
+    legend.position = "right"
   )
 
-homestead_pattern
 ```
 
-
-## Spatial Autocorrelation Metrics
-
-
-```{r join_count, eval=FALSE}
-library(spdep)
+```{r ADD_Spatial_lag, eval=FALSE}
 knn_nb <- knn2nb(knearneigh(xgb_full_pred_sf, k = 4, use_kd_tree = FALSE))
 
 exemption_data <- as.factor(properties_full_pred_sf$exemption)
 join_count_test <- joincount.test(exemption_data, listw = nb2listw(knn_nb, style = "B"))
-print(join_count_test)
-```
 
-
-```{r ADD_Spatial_lag, eval=FALSE}
 lw <- nb2listw(knn_nb, style = "W") 
 properties_full_pred_sf$lag_exemption <- lag.listw(lw, properties_full_pred_sf$exemption)
 ```
@@ -343,14 +329,15 @@ residential_properties <- residential_properties %>%
   mutate(same_address = ifelse(mailing_street == location, 1, 0))
 
 ggplot(residential_properties, aes(x = same_address, fill = as.factor(exemption))) +
-    geom_bar(position = "dodge") +
-    scale_fill_manual(values = colors2, labels = c("No Exemption", "With Exemption")) +
-    labs(title = "Mailing Address Matches Property Address", x = "Address Match", y = "Count", fill = "Homestead Exemption") +
-    theme_minimal(base_size = 14) +
-    theme(panel.grid.major = element_line(color = "grey90"),
-          panel.grid.minor = element_blank(),
-          legend.position = "bottom",
-         plot.title = element_text(vjust = 0.5))
+  geom_bar(position = "dodge") +
+  scale_fill_manual(values = colors2, labels = c("No Exemption", "With Exemption")) +
+  labs(
+    title = "Mailing Address Matches Property Address",
+    x = "Address Match",
+    y = "Count",
+    fill = "Homestead Exemption"
+  ) +
+  base_theme
 ```
 
 #### Owner Count Address {.unnumbered}
@@ -365,23 +352,22 @@ owner_property_count <- filtered_properties %>%
   arrange(desc(property_count))%>%
   mutate(owner_count = ifelse(property_count >= 10, 1, 0))
 
-## join to dataset
 residential_properties <- residential_properties %>%
-  left_join(owner_property_count %>%
-              dplyr::select(owner_1, owner_count), 
+  left_join(owner_property_count %>%dplyr::select(owner_1, owner_count), 
             by = "owner_1") %>%
   mutate(owner_count = ifelse(is.na(owner_count), 0, owner_count))
 
-## plot
-ggplot(residential_properties, aes(x = owner_count, fill = as.factor(exemption))) +
-    geom_bar(position = "dodge") +
-    scale_fill_manual(values = colors2, labels = c("No Exemption", "With Exemption")) +
-    labs(title = "Whether the owner has 10 or more properties", x = "Owner Count", y = "Count", fill = "Homestead Exemption") +
-    theme_minimal(base_size = 14) +
-    theme(panel.grid.major = element_line(color = "grey90"),
-          panel.grid.minor = element_blank(),
-          legend.position = "bottom",
-         plot.title = element_text(vjust = 0.5))
+ggplot(residential_properties, aes(x = as.factor(owner_count), fill = as.factor(exemption))) +
+  geom_bar(position = "dodge") +
+  scale_fill_manual(values = colors2, labels = c("No Exemption", "With Exemption")) +
+  labs(
+    title = "Owner Count by Homestead Exemption",
+    x = "Owner Count > 10",
+    y = "Count",
+    fill = "Homestead Exemption"
+  ) +
+  base_theme
+
 ```
 
 #### Depth of the Property {.unnumbered}
@@ -393,20 +379,17 @@ residential_properties <- residential_properties %>%
   mutate(is_deep = ifelse(depth > 150, 1, 0),
          large_area = ifelse(total_area > 150000, 1, 0))
 
-ggplot(residential_properties %>% 
-         filter(!is.na(is_deep)), 
-       aes(x = factor(is_deep), fill = factor(exemption))) +
+ggplot(residential_properties%>%filter(!is.na(is_deep)), 
+       aes(x = as.factor(is_deep), fill = as.factor(exemption))) +
   geom_bar(position = "dodge") +
   scale_fill_manual(values = colors2, labels = c("No Exemption", "With Exemption")) +
-  labs(title = "Property Depth by Homestead Exemption", 
-       x = "Depth > 300", 
-       y = "Count", 
-       fill = "Exemption") +
-  theme_minimal(base_size = 14) +
-  theme(panel.grid.major = element_line(color = "grey90"),
-        panel.grid.minor = element_blank(),
-        legend.position = "bottom",
-        plot.title = element_text(vjust = 0.5))
+  labs(
+    title = "Property Depth by Homestead Exemption",
+    x = "Depth > 300",
+    y = "Count",
+    fill = "Homestead Exemption"
+  ) +
+  base_theme
 ```
 
 #### Rental Licenses {.unnumbered}
@@ -418,7 +401,6 @@ business_license<-st_read("Data/business_licenses.geojson")
 
 rental_license<-business_license%>%
   filter(licensetype=="Rental",
-         #rentalcategory=="Residential Dwellings",
          licensestatus %in% c("Active"))%>%
   dplyr::select(opa_account_num)%>%
   st_drop_geometry()%>%
@@ -431,28 +413,22 @@ properties_rental <- properties_sf %>%
   left_join(rental_license, by = c("parcel_number" = "opa_account_num"))%>%
   mutate(rental_license = replace_na(rental_license, 0))
 
-ggplot(properties_rental, aes(x = factor(rental_license), fill = factor(exemption))) +
-  geom_bar(position = "dodge") +  
-  geom_text(stat = "count", aes(label = ..count.., color = factor(exemption)),  
-            position = position_dodge(width = 0.9),  
-            vjust = -0.5,  
-            size = 3) +  
-  scale_fill_manual(values = c("0" = "#e42524", "1" = "#00ADA9"),  
-                    labels = c("0" = "No Exemption", "1" = "With Exemption")) +  
-  scale_color_manual(values = c("0" = "#e42524", "1" = "#00ADA9")) +  
-  labs(title = "Rental Licenses Metrics by Homestead Exemption Status",
-       x = "Rental Licenses",
-       y = "Count",
-       fill = "Exemption Status") +
-  theme_minimal() +
-  theme(legend.position = "none") 
-
-#join to dataset
 residential_properties <- residential_properties %>%
-  left_join(properties_rental%>%
-              st_drop_geometry()%>%
-              dplyr::select(objectid,rental_license), 
+  left_join(properties_rental%>%st_drop_geometry()%>%dplyr::select(objectid,rental_license), 
             by = c("objectid" = "objectid"))
+
+ggplot(properties_rental, 
+       aes(x = factor(rental_license), fill = as.factor(exemption))) +
+  geom_bar(position = "dodge") +
+  scale_fill_manual(values = colors2, labels = c("No Exemption", "With Exemption")) +
+  labs(
+    title = "Rental Licenses by Homestead Exemption",
+    x = "Rental License",
+    y = "Count",
+    fill = "Homestead Exemption"
+  ) +
+  base_theme
+
 ```
 
 #### Commertial Licenses {.unnumbered}
@@ -487,28 +463,25 @@ properties_commercial <- properties_sf %>%
   left_join(commercial_license, by = c("parcel_number" = "opa_account_num"))%>%
   mutate(commercial_license = replace_na(commercial_license, 0))
 
-ggplot(properties_commercial, aes(x = factor(commercial_license), fill = factor(exemption))) +
-  geom_bar(position = "dodge") +  
-  geom_text(stat = "count", aes(label = ..count.., color = factor(exemption)),  
-            position = position_dodge(width = 0.9),  
-            vjust = -0.5,  
-            size = 3) +  
-  scale_fill_manual(values = c("0" = "#e42524", "1" = "#00ADA9"),  
-                    labels = c("0" = "No Exemption", "1" = "With Exemption")) +  
-  scale_color_manual(values = c("0" = "#e42524", "1" = "#00ADA9")) +  
-  labs(title = "Commercial Licenses Metrics by Homestead Exemption Status",
-       x = "Commercial Licenses (Exclude Rental)",
-       y = "Count",
-       fill = "Exemption Status") +
-  theme_minimal() +
-  theme(legend.position = "none") 
 
-#join to dataset
 residential_properties <- residential_properties %>%
   left_join(properties_commercial%>%
               st_drop_geometry()%>%
               dplyr::select(objectid,commercial_license), 
             by = c("objectid" = "objectid"))
+
+ggplot(properties_commercial, 
+       aes(x = factor(commercial_license), fill = as.factor(exemption))) +
+  geom_bar(position = "dodge") +
+  scale_fill_manual(values = colors2, labels = c("No Exemption", "With Exemption")) +
+  labs(
+    title = "Commercial Licenses by Homestead Exemption",
+    x = "Commercial License (Exclude Rental)",
+    y = "Count",
+    fill = "Homestead Exemption"
+  ) +
+  base_theme
+
 ```
 
 ### Historical Propertiy Characteristics  {.tabset}
@@ -575,9 +548,6 @@ summary_filtered <- residential_summary_analysis %>%
 
 ggplot(summary_filtered, aes(x = metric, y = value, fill = as.factor(exemption), color = as.factor(exemption))) +
   geom_bar(stat = "identity", position = position_dodge(width = 0.7), width = 0.6, alpha = 0.85) + 
-  geom_text(aes(label = round(value, 0)), 
-            position = position_dodge(width = 0.7), 
-            vjust = -0.5, size = 4.5, fontface = "bold") + 
   ylim(0, max(summary_filtered$value) * 1.2) +
   scale_fill_manual(values = colors2, labels = c("No Exemption", "With Exemption")) +
   scale_color_manual(values = colors2, guide = "none") +  
@@ -586,12 +556,7 @@ ggplot(summary_filtered, aes(x = metric, y = value, fill = as.factor(exemption),
        x = "Metric", 
        y = "Value ($)", 
        fill = "Exemption Status") +
-  theme_minimal(base_size = 14) +
-  theme(axis.text.x = element_text(angle = 0, vjust = 0.5, hjust = 0.5, face = "bold"),
-        axis.title = element_text(face = "bold"),
-        legend.position = "top",
-        plot.title = element_text(face = "bold", size = 16),
-        plot.subtitle = element_text(size = 13, color = "gray40"))
+  base_theme 
 
 ```
 
@@ -623,7 +588,7 @@ yearly_residential_summary %>%
     scale_color_manual(values = colors2, labels = c("No Exemption", "With Exemption")) +
     labs(title = "Yearly Change in Taxable Building Value",
          x = "Year", y = "Taxable Building Value", color = "Exemption Status") +
-    theme_minimal() +
+    base_theme +
     theme(axis.text.x = element_text(angle = 45, hjust = 1))
 ```
 
@@ -680,11 +645,8 @@ ggplot(residential_properties, aes(x = latest_document_type_DEED, fill = as.fact
   geom_bar(position = "dodge") + 
   scale_fill_manual(values = colors2) +
   labs(x = "Property Transfer Types", y = "Count",
-       title = "Latest Property Transfer Types") +
-  theme_minimal() +
-  theme(legend.position = "bottom",
-        axis.text.x = element_text(angle = 60, hjust = 1, size = 6)) +
-  scale_x_discrete(labels = function(x) str_trunc(x, 10))
+       title = "Latest Property Transfer Types by Homestead Exemption") +
+  base_theme
 ```
 
 #### Recently Transfer {.unnumbered}
@@ -758,14 +720,13 @@ residential_properties <- residential_properties %>%
 
 ggplot(residential_properties, 
        aes(x = median_home_value, color = as.factor(exemption))) +
-  geom_density(size = 1) +
+  geom_density(size = 0.5) +
   scale_color_manual(values = colors2) +
   labs(title = "Median Home Value per Census Tract",
        x = "Median Home Value",
        y = "Density",
        color = "Exemption") +
-  theme_minimal() +
-  theme(legend.position = "bottom")
+  base_theme
 
 ```
 
@@ -782,8 +743,7 @@ ggplot(residential_properties,
        x = "Median Home Value",
        y = "Density",
        color = "Exemption") +
-  theme_minimal() +
-  theme(legend.position = "bottom")
+  base_theme
 ```
 
 #### Zoning Analysis  {.unnumbered}
@@ -1019,10 +979,6 @@ To prevent data leakage, spatial lag variables need to be calculated separately 
 Therefore, in this analysis, we first split the data and then independently calculate the spatial adjacency relationships and spatial lag values for each subset. This approach not only better reflects real-world scenarios (where the model only has access to the training data for prediction) but also improves the accuracy and reliability of model evaluation.
 
 ```{r sl, eval=FALSE}
-library(spdep)
-library(dplyr)
-library(zoo)
-
 coords_train <- properties_train %>% 
   dplyr::select(lon_4326, lat_4326) %>% 
   data.matrix()
@@ -1159,7 +1115,7 @@ xgb_full_pred4 <- xgb_full_pred4 %>%
   rename(.pred4=.pred)
 ```
 
-```{r PLOT result}
+```{r PLOT result, echo=FALSE, message=FALSE, warning=FALSE, fig.show='hold'}
 
 ggplot(properties_model, aes(x = .pred4, fill = as.factor(exemption))) + 
   geom_density() +
@@ -1173,7 +1129,7 @@ ggplot(properties_model, aes(x = .pred4, fill = as.factor(exemption))) +
 
 ```
 
-```{r}
+```{r confusionmatrix, echo=FALSE, message=FALSE, warning=FALSE, fig.show='hold'}
 properties_model$exemption.pred4 <- factor(as.character(properties_model$exemption.pred4), levels = c("0", "1"))
 properties_model$exemption<- factor(as.character(properties_model$exemption),       levels = c("0", "1"))
 
@@ -1184,31 +1140,190 @@ caret::confusionMatrix(properties_model$exemption.pred4, properties_model$exempt
 
 # Predict on False Positive
 
-```{r}
+```{r read_fp, echo=FALSE, message=FALSE, warning=FALSE, fig.show='hold'}
 properties_model <- properties_model %>%
   mutate(exemption.pred0.5 = ifelse(.pred4 >= 0.5, "1", "0"),
          exemption.pred0.6 = ifelse(.pred4 >= 0.6, "1", "0"),
          exemption.pred0.7 = ifelse(.pred4 >= 0.7, "1", "0"),
          exemption.pred0.8 = ifelse(.pred4 >= 0.8, "1", "0"),
          exemption.pred0.9 = ifelse(.pred4 >= 0.9, "1", "0"))
-```
 
-```{r}
 false_positive <- properties_model %>%
   filter(exemption == 0, exemption.pred0.5 == 1)
 
 fp_sf <- st_as_sf(false_positive, coords = c("lon_4326", "lat_4326"), crs = 4326)
 
-#shapefile_path <- "~/Downloads/tl_2020_42101_tract20/tl_2020_42101_tract20.shp"
-
-#philly_shapefile <- st_read(shapefile_path)
+philly_shapefile <- st_read("data/tl_2020_42101_tract20/tl_2020_42101_tract20.shp")
 ```
+
+## Spatial Density of Missed Exemptions
+
+Kernel Density Estimation heatmap hotspots = Regions where the estimated probability density function is high.
+It is smoother and continuous, showing density trends rather than clear cluster boundaries.
+Even moderately dense but widespread areas can appear as "hot" in the visualization.
+
+```{r kde, echo=FALSE, message=FALSE, warning=FALSE, fig.show='hold'}
+ggplot() +
+  geom_sf(data = philly_shapefile, fill = "white", color = "gray80") +
+  stat_density2d(
+    data = false_positive, 
+    aes(x = lon_4326, y = lat_4326, fill = ..level..), 
+    geom = "polygon", alpha = 0.6, color = NA
+  ) +
+  scale_fill_viridis_c() +
+  coord_sf() +
+  labs(title = "Density of False Positive Properties in Philadelphia") +
+  theme_minimal()
+
+```
+
+## DBSCAN
+
+
+DBSCAN hotspots = Regions where at least minPts points are located within a distance of eps from each other.
+It is stricter and tends to ignore areas that are high-density but more dispersed.
+Only dense clusters of closely packed points are identified.
+
+
+```{r bdscan, echo=FALSE, message=FALSE, warning=FALSE, fig.show='hold'}
+fp_proj <- st_transform(fp_sf, 26918)
+
+coords <- st_coordinates(fp_proj)
+
+library(dbscan)
+
+eps_val <- 300   
+min_pts <- 20    
+
+db_result <- dbscan(coords, eps = eps_val, minPts = min_pts)
+
+fp_proj$cluster <- as.factor(db_result$cluster)
+
+ggplot(fp_proj) +
+  geom_sf(aes(color = cluster), size = 0.2, alpha = 0.7) +
+  scale_color_viridis_d(option = "plasma", name = "Cluster") +
+  labs(
+    title = "DBSCAN Clustering of False Positive Properties",
+    subtitle = paste("ε =", eps_val, ", minPts =", min_pts),
+    caption = "Cluster 0 = noise (not assigned to any cluster)"
+  ) +
+  theme_minimal()
+```
+
+```{r spatialjoin, echo=FALSE, message=FALSE, warning=FALSE, fig.show='hold'}
+## spatial join to Tracts
+philly_shapefile <- st_transform(philly_shapefile, st_crs(fp_proj))
+fp_with_tract <- st_join(fp_proj, philly_shapefile)
+
+cluster_summary <- fp_with_tract %>%
+  st_drop_geometry() %>%
+  group_by(TRACTCE20, cluster) %>%
+  summarise(count = n(), .groups = "drop")
+
+tract_fp_stats <- cluster_summary %>%
+  group_by(TRACTCE20) %>%
+  summarise(
+    total_fp = sum(count),
+    n_clusters = n_distinct(cluster)
+  ) %>%
+  arrange(desc(total_fp))
+
+philly_tracts_joined <- left_join(philly_shapefile, tract_fp_stats, by = "TRACTCE20")
+
+top10_tracts <- philly_tracts_joined %>%
+  arrange(desc(total_fp)) %>%
+  slice_head(n = 10) %>%
+  pull(TRACTCE20)
+
+philly_tracts_joined$highlight_top10 <- philly_tracts_joined$TRACTCE20 %in% top10_tracts
+
+ggplot() +
+  geom_sf(data = philly_tracts_joined, fill = "white", color = "gray70", size = 0.3) +
+  geom_sf(data = filter(philly_tracts_joined, !is.na(total_fp)),
+          aes(fill = total_fp), color = NA) +
+  
+  scale_fill_gradient(low = "#00ADA9", high = "#E42524", name = "False Positive Count") +
+  geom_sf(data = filter(philly_tracts_joined, highlight_top10),
+          fill = NA, color = "#E42524", linewidth = 0.6) +
+  labs(
+    title = "Missed Exemption Opportunities by Census Tract",
+  ) +
+  theme_minimal() +
+  theme(
+    plot.title = element_text(face = "bold", size = 16),
+    plot.subtitle = element_text(size = 12)
+  )
+```
+
+## Moran's I
+```{r lisa , echo=FALSE, message=FALSE, warning=FALSE, fig.show='hold'}
+philly_moran <- philly_tracts_joined %>% 
+  filter(!is.na(total_fp))
+
+tract_nb <- poly2nb(philly_moran)
+tract_weights <- nb2listw(tract_nb, style = "W", zero.policy = TRUE)
+
+local_moran <- localmoran(
+  x = philly_moran$total_fp,
+  listw = tract_weights,
+  zero.policy = TRUE
+)
+
+philly_moran$Ii <- local_moran[, 1]      # Local Moran's I
+philly_moran$Z_Ii <- local_moran[, 4]    # 标准化 I
+philly_moran$p_value <- local_moran[, 5] # p-value
+
+fp_mean <- mean(philly_moran$total_fp)
+
+philly_moran <- philly_moran %>%
+  mutate(
+    lag_fp = lag.listw(tract_weights, total_fp),
+    cluster_type = case_when(
+      total_fp > fp_mean & lag_fp > fp_mean & p_value < 0.05 ~ "High-High",
+      total_fp < fp_mean & lag_fp < fp_mean & p_value < 0.05 ~ "Low-Low",
+      total_fp > fp_mean & lag_fp < fp_mean & p_value < 0.05 ~ "High-Low",
+      total_fp < fp_mean & lag_fp > fp_mean & p_value < 0.05 ~ "Low-High",
+      TRUE ~ "Not Significant"
+    )
+  )
+
+ggplot(philly_moran) +
+  geom_sf(aes(fill = cluster_type), color = "white", size = 0.2) +
+  scale_fill_manual(
+    values = c(
+      "High-High" = "#E42524",
+      "Low-Low" = "#00ADA9",
+      "High-Low" = "#F39C12",
+      "Low-High" = "#9B59B6",
+      "Not Significant" = "gray80"
+    ),
+    name = "LISA Cluster"
+  ) +
+  labs(
+    title = "LISA Cluster Map (Local Moran's I)",
+    subtitle = "Clusters of Missed Exemption Opportunities"
+  ) +
+  theme_minimal()
+
+```
+
+
+```{r p_value_LISA, echo=FALSE, message=FALSE, warning=FALSE, fig.show='hold'}
+ggplot(philly_moran) +
+  geom_sf(aes(fill = p_value), color = "white") +
+  scale_fill_viridis_c(option = "C", direction = -1) +
+  labs(title = "P-Values from Local Moran's I", fill = "P-Value") +
+  theme_minimal()
+```
+
+
 
 # Cost-Benefit Analysis
 
 
 
 # Application Development
+
 
 # Conclusion
 
