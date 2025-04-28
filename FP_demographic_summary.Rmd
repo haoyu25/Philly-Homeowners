@@ -98,6 +98,18 @@ fp_summary %>%
   tab_style(
     style = cell_fill(color = "#f0f0f0"),
     locations = cells_row_groups()
+  ) %>%
+  tab_style(
+    style = cell_text(color = "black", weight = "bold"),
+    locations = cells_row_groups()
+  ) %>%
+  tab_style(
+    style = cell_text(color = "black"),
+    locations = cells_body()
+  ) %>%
+  tab_style(
+    style = cell_text(color = "black"),
+    locations = cells_column_labels()
   )
 ```
 
