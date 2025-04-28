@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html lang="en">
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+        <title>Philadelphia Homestead Exemption Dashboard</title>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Open+Sans&display=swap">
+        <link rel="stylesheet" href="https://use.fontawesome.com/releases/v5.15.4/css/all.css">
+        <link rel="stylesheet" href="css/styles.css">
+        <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+    </head>
+<body>
+    <div class="header">
+        <div class="image-container">
+            <img src="dashboarddata/housesearchicon.png" alt="House Search Icon" id="house-search">
+        </div>
+        <h2>Philadelphia Homestead Exemption Explorer</h2>
+    </div>
+    <div class="main-container">
+        <div class="left-column">
+            <div id="left-panel"></div>
+        </div>
+        <div class="right-column">
+            <div class="map-search-controls">
+                <input type="text" name="address-search" id = "address-search" placeholder="Search your location here..." aria-label="Search your location here"/>
+                <ul id="address-choices" class="hidden" ></ul>
+                <button id="search-btn">
+                <img src="dashboarddata/search.png" alt="Search Icon" id="search-icon">
+                </button>
+        </div> 
+        <div class="main-map" id="map"></div> 
+    </div>
+    <div id="app"></div>
+    </div>
+    
+   
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script src="https://unpkg.com/leaflet.vectorgrid@latest/dist/Leaflet.VectorGrid.bundled.js"></script>
+    <script src='https://unpkg.com/@turf/turf@6/turf.min.js'></script>
+    <script type="module" src="script/main.js"></script>
+</body>
+</html>
