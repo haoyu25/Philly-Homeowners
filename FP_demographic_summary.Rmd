@@ -1,0 +1,114 @@
+---
+title: "False positives demographic summary"
+output: html_document
+date: "2025-04-28"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r cars}
+# Load required libraries
+library(sf)
+library(dplyr)
+library(readr)
+
+# Load the GeoJSON data
+data <- st_read("data/property_without_exemption_tractdata.geojson")
+
+```
+
+
+```{r}
+# Add demographic groupings FIRST
+data <- data %>%
+  mutate(
+    majority_white = ifelse(pct_wht > 0.5, "Majority White", "Majority Non-White"),
+    above_avg_income = ifelse(mdn_ncm_1 > median(mdn_ncm_1, na.rm = TRUE), "Above Average Income", "Below Average Income"),
+    high_foreign_born = ifelse(pct_fr1 > 0.5, "High Foreign Born", "Low Foreign Born"),
+    high_limited_english = ifelse(lmtd_n1 > 0.5, "High Limited English", "Low Limited English"),
+    high_education = ifelse(bch_dg1 > 0.5, "High Education", "Low Education"),
+    high_senior = ifelse(snr_wn1 > 0.5, "High Senior Population", "Low Senior Population"),
+    high_young = ifelse(yng_wn1 > 0.5, "High Young Population", "Low Young Population")
+  )
+
+# Now filter for false positives (X_pred1 >= 0.5)
+fp_data <- data %>% filter(X_pred1 >= 0.5)
+
+# Function to calculate FP Rate per group
+calc_fp_rate <- function(var, label) {
+  total <- as.data.frame(data) %>% group_by(!!sym(var)) %>% summarise(n = n())
+  fp <- as.data.frame(fp_data) %>% group_by(!!sym(var)) %>% summarise(fp_n = n())
+  summary <- left_join(total, fp, by = var) %>%
+    mutate(fp_n = ifelse(is.na(fp_n), 0, fp_n),
+           fp_rate = fp_n / n) %>%  # <--- proportion, not percent
+    select(!!sym(var), n, fp_n, fp_rate)
+  colnames(summary) <- c("Category", "Total Properties", "False Positives", "FP Rate (%)")
+  summary$Group <- label
+  summary
+}
+
+# Calculate FP rates for each group
+fp_majority_white <- calc_fp_rate("majority_white", "Majority Race")
+fp_income <- calc_fp_rate("above_avg_income", "Income")
+fp_foreign_born <- calc_fp_rate("high_foreign_born", "Foreign Born")
+fp_limited_english <- calc_fp_rate("high_limited_english", "Limited English")
+fp_education <- calc_fp_rate("high_education", "Education")
+fp_senior <- calc_fp_rate("high_senior", "Senior Population")
+fp_young <- calc_fp_rate("high_young", "Young Population")
+
+# Combine all summaries
+fp_summary <- bind_rows(
+  fp_majority_white,
+  fp_income,
+  fp_foreign_born,
+  fp_limited_english,
+  fp_education,
+  fp_senior,
+  fp_young
+)
+
+```
+
+
+```{r}
+library(gt)
+
+fp_summary %>%
+  gt(groupname_col = "Group") %>%
+  tab_header(
+    title = "Summary of False Positive Rates by Demographic Group"
+  ) %>%
+  fmt_number(
+    columns = vars(`Total Properties`, `False Positives`),
+    decimals = 0,
+    use_seps = TRUE
+  ) %>%
+  fmt_percent(
+    columns = vars(`FP Rate (%)`),
+    decimals = 1
+  ) %>%
+  cols_label(
+    Category = "Category",
+    `Total Properties` = "Total Properties",
+    `False Positives` = "False Positives",
+    `FP Rate (%)` = "FP Rate (%)"
+  ) %>%
+  tab_style(
+    style = cell_fill(color = "#f0f0f0"),
+    locations = cells_row_groups()
+  )
+```
+
+Finding:
+
+The model’s false positive rates—used to guide outreach—are generally consistent across racial, income, language, and foreign-born groups, suggesting a broadly equitable approach. However, tracts with lower education or fewer seniors have notably lower FP rates, meaning residents in these areas are less likely to be flagged for outreach. This could reflect true differences in eligibility, but it’s important to monitor these groups to ensure they are not inadvertently underserved.
+
+
+```{r}
+# write to CSV
+#write_csv(fp_summary, "false_positive_summary_by_group.csv")
+```
+
+
