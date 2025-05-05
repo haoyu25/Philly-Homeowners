@@ -40,7 +40,7 @@ h2 {
 
 h5 {
     color: black;
-    font-size: 24px;
+    font-size: 2rem;
 }
 
 .image-container {
@@ -257,15 +257,15 @@ h5 {
 /* Popup content - larger size */
 .popup-content {
     background-color: white;
-    padding: 20px;
+    padding: 0px 40px 40px;
     border-radius: 12px;
-    width: 80%; /* Use 80% of screen width */
-    height: 80%; /* Use 80% of screen height */
-    max-width: 90%; /* Maximum width to ensure it doesn't overflow */
+    width: 65%; /* Use 80% of screen width */
+    height: 85%; /* Use 80% of screen height */
+    max-width: 70%; /* Maximum width to ensure it doesn't overflow */
     max-height: 90%; /* Limit the height */
     overflow: hidden; /* Hide overflow if needed */
     position: relative;
-    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+    box-shadow: 0 4px 4px rgba(0, 0, 0, 0.2);
     display: flex;
     flex-direction: column;
     justify-content: flex-start; /* Push content to the top */
@@ -280,6 +280,22 @@ h5 {
     margin-left: auto;
     margin-right: auto; /* Center the image horizontally */
 }
+
+.popup {
+  text-align: justify
+} 
+
+.popup h2, .popup h3 {
+    font-size: 2.5rem !important;
+    margin-bottom: 1rem;
+    text-align: center;
+}
+
+
+.popup ul, .popup ol {
+    margin-left: 2rem;
+    margin-bottom: 1rem;
+  }
 
 /* Close button */
 .close-btn {
@@ -438,3 +454,185 @@ h4 {
     text-align: center;
     color: #7f8c8d; /* Adjust the color as needed */
   }
+
+  .map-search-controls {
+    padding: 0.5rem;
+    background-color: #f0f0f0;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
+    width: 100%;
+    font-family: inherit; /* Inherit Rubik from body */
+  }
+  
+  .map-search-controls input[type="text"] {
+    padding: 0.5rem 1rem;
+    font-size: 1rem;
+    border: 1px solid #ccc;
+    border-radius: 4px 4px 0 0;
+    margin-bottom: 0;
+    box-sizing: border-box;
+    font-family: inherit; /* Ensure Rubik font */
+    background: #fff;
+  }
+  
+  #address-choices {
+    max-height: 220px;
+    overflow-y: auto;
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    background: #fff;
+    border: 1px solid #ccc;
+    border-top: none;
+    border-radius: 0 0 4px 4px;
+    box-shadow: 0 4px 16px rgba(0,0,0,0.08);
+    font-family: inherit; /* Ensure Rubik font */
+    font-size: 1rem;
+    z-index: 1000;
+    position: absolute;
+  }
+  
+  #address-choices li {
+    padding: 0.75rem 1rem;
+    cursor: pointer;
+    color: #222;
+    transition: background 0.15s;
+    font-family: inherit; /* Ensure Rubik font */
+    border-bottom: 1px solid #f0f0f0;
+    word-break: break-word;
+  }
+  
+  #address-choices li:last-child {
+    border-bottom: none;
+  }
+  
+  #address-choices li:hover, #address-choices li.active {
+    background: #e0e7ef;
+    color: #003366;
+  }
+
+  .property-popup {
+    font-size: 1.5em;    /* Makes all text 1.5x bigger */
+    line-height: 1.4;
+    max-width: 350px;    /* Optional: wider popup */
+  }
+  .leaflet-popup-content {
+    padding: 18px 20px;  /* Optional: more padding */
+  }
+
+  .feasibility-Yes { color: green; }
+.feasibility-No { color: orange; font-weight: bold; }
+table { min-width: 300px; }
+td:nth-child(2) { text-align: right; }
+
+#tract-name {
+    font-size: 1.8rem !important; 
+    font-weight: bold;
+    margin-bottom: 0.5em;
+  }
+
+#selected-properties {
+    font-size: 1.4rem !important; 
+    font-weight: bold;
+    margin-bottom: 0.5em;
+    color: #a30000 !important;
+  }
+
+  .subheader {
+    font-size: 1.5rem;      /* 24px */
+    font-weight: bold;
+    background: #333333;    /* Dark grey */
+    color: #fff !important;
+    border-radius: 12px;
+    padding: 0.5em 1em;
+    margin: 1em 0 0.5em 0;
+    display: inline-block;
+  }
+
+  .third-header {
+    font-size: 1.25rem;     /* 20px */
+    font-weight: bold;
+    text-decoration: underline;
+    text-decoration-thickness: 2px;
+    text-underline-offset: 3px;
+    margin-bottom: 0.5em;
+  }
+  
+  .logo-row {
+    display: flex;
+    justify-content: center;
+    width: 100%;
+    gap: 0.4rem !important;
+  }
+
+  .logo-row img {
+    width: 150px;
+    height: auto;
+    margin: 0;
+    padding: 0;
+    display: block;
+  }
+  
+  .cost-table th,
+.cost-table td,
+.benefit-table th,
+.benefit-table td {
+  text-align: center;
+  vertical-align: middle;
+}
+
+/* The switch - the box around the slider */
+.switch {
+  position: relative;
+  display: inline-block;
+  width: 44px;
+  height: 24px;
+  vertical-align: middle;
+  margin-right: 8px;
+}
+
+/* Hide default HTML checkbox */
+.switch input {
+  opacity: 0;
+  width: 0;
+  height: 0;
+}
+
+/* The slider */
+.slider {
+  position: absolute;
+  cursor: pointer;
+  top: 0; left: 0; right: 0; bottom: 0;
+  background-color: #ccc;
+  transition: .4s;
+  border-radius: 24px;
+}
+
+.slider:before {
+  position: absolute;
+  content: "";
+  height: 18px;
+  width: 18px;
+  left: 3px;
+  bottom: 3px;
+  background-color: white;
+  transition: .4s;
+  border-radius: 50%;
+}
+
+/* Checked state */
+.switch input:checked + .slider {
+  background-color: #2196F3;
+}
+.switch input:focus + .slider {
+  box-shadow: 0 0 1px #2196F3;
+}
+.switch input:checked + .slider:before {
+  transform: translateX(20px);
+}
+
+/* Optional: label styling */
+.switch-label {
+  font-size: 1em;
+  vertical-align: middle;
+  user-select: none;
+}

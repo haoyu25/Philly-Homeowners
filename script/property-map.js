@@ -6,13 +6,15 @@ let withoutExemptionData;
 let highHighLayer;
 let censusTractLayer;
 let lastClickedMarker = null;
+export let communityLayer = null;
+let isLayerVisible = false;
 
 export function initializePropertyMap() {
   if (propertyMap) {
     propertyMap.remove();
   }
 
-  propertyMap = L.map('map', { preferCanvas: true }).setView([39.9526, -75.1652], 16);
+  propertyMap = L.map('map', { preferCanvas: true }).setView([40.0226, -75.1352], 13);
 
   const mapboxKey = 'pk.eyJ1IjoiY2xhdWRsb3ciLCJhIjoiY20weTY3MDZoMDNocTJrbXpqa3lqZWJlaSJ9.3N1iXpEvsJ0GwajGVwwkTg';
   const mapboxStyle = 'mapbox/light-v11';
@@ -24,7 +26,7 @@ export function initializePropertyMap() {
 
   baseTileLayer.addTo(propertyMap);
 
-  const propertyLayer = L.vectorGrid.protobuf('https://storage.googleapis.com/musa5090s25-team2-public/tiles/properties/{z}/{x}/{y}.pbf', {
+  const propertyLayer = L.vectorGrid.protobuf('tiles/properties/{z}/{x}/{y}.pbf', {
     vectorTileLayerStyles: {
       'property_layer': (properties, zoom) => ({
         weight: 0.5,
@@ -36,6 +38,7 @@ export function initializePropertyMap() {
       })
     },
     maxNativeZoom: 20,
+    maxZoom: 22,
     interactive: false,
   });
 
@@ -65,12 +68,12 @@ export function initializePropertyMap() {
     const exemptionLayer = L.geoJSON(data, {
       pointToLayer: (feature, latlng) => {
         return L.circleMarker(latlng, {
-          radius: 2,
+          radius: 3,
           fillColor: '#001f4d',
           color: '#001f4d',
           weight: 1,
-          opacity: 0.4,
-          fillOpacity: 0.4,
+          opacity: 0.8,
+          fillOpacity: 0.8,
           interactive: false
         });
       },
@@ -101,7 +104,7 @@ export function initializePropertyMap() {
   });
 
   // Add without_exemption data
-  fetch('dashboarddata/property_without_exemption_tractdata_reduced.geojson')
+  fetch('dashboarddata/property_without_exemption_final_reduced.geojson')
     .then(response => response.json())
     .then(data => {
       withoutExemptionData = data;
@@ -112,7 +115,7 @@ export function initializePropertyMap() {
     });
 
     // Add census tract outlines
-fetch('dashboarddata/Census_Tracts_2010.geojson')
+fetch('dashboarddata/phila_census_tracts_2020.json')
 .then(response => response.json())
 .then(data => {
   censusTractLayer = L.geoJSON(data, {
@@ -129,6 +132,76 @@ fetch('dashboarddata/Census_Tracts_2010.geojson')
 })
 .catch(error => {
   console.error('Problem loading census tract data:', error);
+});
+
+const communitySiteIcon = L.icon({
+  iconUrl: 'dashboarddata/communitysiteicon.png',
+  iconSize: [24, 24], // Normal size
+  iconAnchor: [12, 12],
+  popupAnchor: [0, -12],
+});
+
+const communitySiteIconBig = L.icon({
+  iconUrl: 'dashboarddata/communitysiteicon.png',
+  iconSize: [36, 36], // Bigger size for hover
+  iconAnchor: [18, 18],
+  popupAnchor: [0, -18],
+});
+
+// Add community sites
+fetch('dashboarddata/community_sites_points.geojson')
+  .then(response => response.json())
+  .then(data => {
+    communityLayer = L.geoJSON(data, {
+      pointToLayer: (feature, latlng) => {
+        return L.marker(latlng, { 
+          icon: communitySiteIcon,
+          riseOnHover: true  // Bring marker to front on hover
+        });
+      },
+      onEachFeature: (feature, layer) => {
+        const name = feature.properties.name || "N/A";
+        let type = feature.properties.amenity || "N/A";
+        type = type === 'place_of_worship' ? 'Place of Worship' : type;
+        type = type === 'community_centre' ? 'Community Centre' : type;
+        type = type === 'library' ? 'Library' : type;
+        type = type === 'marketplace' ? 'Marketplace' : type;
+        
+        const number = feature.properties['addr:housenumber'] || "";
+        const street = feature.properties['addr:street'] || "";
+        const postcode = feature.properties['addr:postcode'] || "";
+        const address = `${number} ${street}, PA ${postcode}`.trim();
+
+        const popupContent = `
+          <div class="property-popup">
+            <strong>Name:</strong> ${name}<br>
+            <strong>Type:</strong> ${type}<br>
+            <strong>Address:</strong> ${address}
+          </div>
+        `;
+
+        const popup = L.popup({
+          className: 'custom-popup',
+          offset: [0, -24]
+        }).setContent(popupContent);
+
+        layer.bindPopup(popup);
+
+        layer.on('mouseover', function() {
+          this.openPopup();
+          this.setIcon(communitySiteIconBig);
+        });
+        
+        layer.on('mouseout', function() {
+          this.closePopup();
+          this.setIcon(communitySiteIcon);
+        });
+      }
+    });
+  })
+
+.catch(error => {
+  console.error('Problem loading community sites data:', error);
 });
 
 // Add highhigh union polygons
@@ -166,7 +239,6 @@ if (currentZoom <= 15) {
   }
 }
 }
-
 }
 
 export function updateWithoutExemptionLayer(threshold) {
@@ -177,7 +249,7 @@ export function updateWithoutExemptionLayer(threshold) {
   if (!withoutExemptionData) return;
 
   const filteredFeatures = withoutExemptionData.features.filter(feature => {
-    return feature.properties._pred1 >= threshold;
+    return feature.properties.X_pred1 >= threshold;
   });
 
   console.log(`Processing ${filteredFeatures.length} features with threshold ${threshold}`);
@@ -223,14 +295,16 @@ export function updateWithoutExemptionLayer(threshold) {
 
   filteredFeatures.forEach(feature => {
     const [lng, lat] = feature.geometry.coordinates;
-    const { sm_ddrs, rntl_lc, cmmrcl_, avg_mr_, _pred1 } = feature.properties;
+    const { sm_ddrs, rntl_lc, cmmrcl_, avg_mr_, X_pred1 } = feature.properties;
 
     const popupContent = `
-      <b>Predicted Probability:</b> ${_pred1.toFixed(2)}<br>
+    <div class="property-popup">
+      <b>Predicted Probability:</b> ${X_pred1.toFixed(2)}<br>
       <b>Same Mailing Address:</b> ${sm_ddrs === 1 ? "Yes" : "No"}<br>
       <b>Rental License:</b> ${rntl_lc === 1 ? "Yes" : "No"}<br>
       <b>Commercial License:</b> ${cmmrcl_ === 1 ? "Yes" : "No"}<br>
       <b>Average Market Value:</b> $${avg_mr_.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}
+    </div>
     `;
 
   // Create a custom divIcon to mimic a circleMarker
@@ -266,57 +340,27 @@ export function updateWithoutExemptionLayer(threshold) {
 
     marker.on('mouseover', function (e) {
       console.log('Mouseover on marker:', e.target);
-      this.openPopup(); 
-      this.setStyle({
-        radius: 8,
-        fillColor: '#ffcc00',
-        color: '#ffcc00',
-        weight: 2,
-        opacity: 1,
-        fillOpacity: 1
-      });
+      this.openPopup();
+      this.setIcon(hoverIcon);
     });
     
     marker.on('mouseout', function (e) {
       console.log('Mouseout from marker:', e.target);
-      this.closePopup(); 
-      this.setStyle({
-        radius: 5,
-        fillColor: '#cc0000',
-        color: '#cc0000',
-        weight: 10,
-        opacity: 0,
-        fillOpacity: 0.9
-      });
+      this.closePopup();
+      this.setIcon(defaultIcon);
     });
     
     marker.on('click', function (e) {
-      console.log('Marker clicked:', e.target);
       updateTractCharacteristics(feature.properties);
+    
+      // Center and zoom the map on this marker
       propertyMap.panTo(marker.getLatLng());
     
       if (lastClickedMarker) {
-        lastClickedMarker.setStyle({
-          radius: 5,
-          fillColor: '#cc0000',
-          color: '#cc0000',
-          weight: 10,
-          opacity: 0,
-          fillOpacity: 0.9
-        });
+        lastClickedMarker.setIcon(defaultIcon);
       }
-    
-      marker.setStyle({
-        radius: 10,
-        fillColor: '#ffff00',
-        color: '#ffff00',
-        weight: 2,
-        opacity: 1,
-        fillOpacity: 1
-      });
-    
       lastClickedMarker = marker;
-    });
+    });    
 
     withoutExemptionClusterLayer.addLayer(marker);
   });
@@ -332,3 +376,22 @@ export function updateWithoutExemptionLayer(threshold) {
   propertyMap.addLayer(withoutExemptionClusterLayer);
 
 }
+
+export function toggleCommunityLayer(show) {
+  if (!communityLayer) return;
+  
+  if (show) {
+    propertyMap.addLayer(communityLayer);
+  } else {
+    propertyMap.removeLayer(communityLayer);
+  }
+  isLayerVisible = show;
+}
+
+export function isCommunityLayerVisible() {
+  return isLayerVisible;
+}
+
+setTimeout(() => {
+  propertyMap.invalidateSize();
+}, 200);

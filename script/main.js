@@ -1,5 +1,12 @@
 import { initializePropertyMap } from './property-map.js';
 import { renderDashboardPanel } from './dashboard.js';
+import { initializeAddressSearch } from './address-search.js';
+
+document.addEventListener('DOMContentLoaded', () => {
+  initializeAddressSearch();
+  // Other initializations...
+});
+
 
 document.addEventListener('DOMContentLoaded', () => {
   initializePropertyMap();
@@ -32,40 +39,57 @@ function showIntroPopup() {
 
   const description = document.createElement('div');
   description.innerHTML = `
-  <h5>Welcome to the Homestead Exemption Explorer! </h5>  
+  <h3>Welcome to the Philadelphia <br> Homestead Exemption Outreach Explorer!</h3> 
 
-  <p style="margin-top: 2rem; margin-bottom: 2rem;">This dashboard serves as an exploratory tool to understand the <strong>Homestead Exemption program</strong> in Philadelphia. Based on a machine learning model,
-    properties likely eligible for the program but not currently enrolled in the program were predicted and identified.</p>
-    <p style="margin-bottom: 2rem;">To increase awareness about the potential unrealized property tax savings of this program, the City of Philadelphia is considering an outreach campaign to these homeowners.
-    Use this to understand Homestead Exemption, explore neighborhoods with the most outreach potential, and view the varying associated costs and benefits for the outreach.</p>
+  <p style="margin-top: 2rem; margin-bottom: 2rem; font-size: 1.25rem;">This dashboard serves as an exploratory tool and  allows a user to explore properties currently not enrolled in a Homestead Exemption.  
+  To understand the Homestead Exemption program</strong> in Philadelphia. 
+  </p>
 
-    <hr style="margin: 2rem 0;">
+  <p style="margin-top: 2rem; margin-bottom: 2rem; font-size: 1.25rem;">
+  To increase awareness about the potential unrealized property tax savings of this program, the City of Philadelphia is considering an outreach campaign to these homeowners.
+  A machine learning XGBoost model was used to predict the probability that a property may be eligible for the Homestead Exemption program. 
+  Use the slider to try different thresholds, explore where these properties are clustered, as well as their neighborhood profiles.
+  View the estimated costs and benefits for targeted outreach and export the addresses of the selected census tract for outreach purposes.
+  </p>
 
-    <h3>About the Homestead Exemption Program</h3>
-    <p style="margin-bottom: 1rem;">The Homestead Exemption reduces the taxable portion of a homeowner's property assessment by up to $100,000, saving up to $1,399 on real estate taxes annually. Property tax in Philadelphia is 1.3998% of the property value, as assessed by the Office of Property Assessment,for the 2025 taxx year. This is made up of 0.6159% (City of Philadelphia) and 0.7839% (School District). The taxes are due March 31st yearly. The bill signed aimed to lessen the financial burden of new property assessments on Philadelphia homeowners, whose property values increased by an average of 31% after the city delayed the annual calculations for three years due to the pandemic.
-Eligibility for the Homestead Exemption is as follows:
-•	you must own the property and use it as your primary residence
-•	no age or income restrictions
-•	Not used exclusively for business purposes or as rental units (a percentage is fine)
+  <hr style="width:50%; text-align:center; margin: 2rem auto 1.5rem auto;">
 
-A homeowner is Ineligible if a homeowner is already enrolled in these alternative real estate tax relief/abatement programs:
-•	Longtime Owner Occupants Program (LOOP), an	income-based program for homeowners who experience a substantial increase in their property assessment.
-•	10-year residential tax abatement program, although one can only apply for Homestead Exemption after the abatement is over</p>
+  <div style="text-align: center; margin-bottom: 1.5rem;">
+    <h4 style="margin-bottom: 0.75rem;">Legend</h4>
+    <div style="display: flex; flex-direction: column; align-items: center; gap: 0.5rem; font-size: 1.25rem;">
+      <span>
+        <span style="display: inline-block; width: 18px; height: 18px; background: #000000; border-radius: 50%; margin-right: 0.5rem; vertical-align: middle;"></span>
+        Properties already enrolled in Homestead Exemption
+      </span>
+      <span>
+        <span style="display: inline-block; width: 18px; height: 18px; background: #d32f2f; border-radius: 50%; margin-right: 0.5rem; vertical-align: middle;"></span>
+        Properties not currently enrolled in Homestead Exemption
+      </span>
+      <span>
+        <span style="display: inline-block; width: 22px; height: 14px; background: #ffeb3b; border-radius: 0.2rem; margin-right: 0.5rem; vertical-align: middle; border: 1px solid #bdb000;"></span>
+        Yellow areas - Hotspots based on 0.5 threshold
+      </span>
+    </div>
+  </div>
 
-    <h3>How to Use this Dashboard</h3>
-    <p style="margin-bottom: 1rem;">This dashboard allows a user to explore properties currently not enrolled in a Homestead Exemption. 
-    A machine learning XGBoost model was used to predict the probability that a property may be eligible for the program. 
-    Use the slider to explore the predicted probabilities and different thresholds, explore where these properties are clustered as well as their neighborhood profiles.
-    Export the addresses per census tract as well as the estimated costs and benefits for targeted outreach. </p>
-    
-  `;
-////<img src="dashboarddata/eligibility.png" style="width: 80%; object-fit: cover; border-radius: 0.5rem; margin-top: 1rem;" alt="Eligibility Info">
+  <p style="margin-top: 2rem; margin-bottom: 2rem; font-size: 1.25rem;">
+  Please refer to our RMarkdown for the detailed report of our project.
+  </p>
+
+<div class="logo-row">
+  <img src="dashboarddata/weitzmanlogo.png" style="width: 240px; object-fit: contain; border-radius: 0.2rem; margin-top: 1rem;" alt="Weitzman Logo">
+  <img src="dashboarddata/phillystat360logo.png" style="width: 240px; object-fit: contain; border-radius: 0.2rem; margin-top: 1rem; margin-left: 0.5rem;" alt="Philly Stat 360 Logo">
+</div>
+  `;  
+
+//</img>/<img src="dashboarddata/weitzmanlogo.png" style="width: 50%; object-fit: cover; border-radius: 0.5rem; margin-top: 1rem;" alt="Eligibility Info">
 
   const footer = document.createElement('p');
   footer.textContent = "Created by Haoyu Zhu, Rachel Midgett, Wenjun Zhu, and Claudia Low for University of Pennsylvania's MUSA 801";
   footer.style.marginTop = '2rem';
   footer.style.marginBotom = "10rem";
   footer.style.textAlign = 'center';
+  footer.style.fontsize = '1.2';
   footer.style.fontWeight = 'bold';
 
   content.append(closeBtn, title, description, footer);

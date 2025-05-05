@@ -1,12 +1,12 @@
-import { updateWithoutExemptionLayer } from './property-map.js';
-let selectedObjectIds = [];
+import { updateWithoutExemptionLayer, toggleCommunityLayer, isCommunityLayerVisible, communityLayer} from './property-map.js';
+let selectedAddresses = [];
 let lastClickedGEOID = null;
 let withoutExemptionData = null;
 let threshold = 0.7;
 
 // Load in Exemption Data
 function loadWithoutExemptionData() {
-  fetch('dashboarddata/property_without_exemption_tractdata_reduced.geojson')
+  fetch('dashboarddata/property_without_exemption_final_reduced.geojson')
     .then(response => response.json())
     .then(data => {
       withoutExemptionData = data;
@@ -37,6 +37,7 @@ export function renderDashboardPanel() {
 
   const tractHeader = document.createElement('h4');
   tractHeader.textContent = 'Census Tract Characteristics';
+  tractHeader.className = 'subheader';
 
   const tractTable = document.createElement('table');
   tractTable.className = 'tract-table';
@@ -51,9 +52,58 @@ export function renderDashboardPanel() {
 
   const outreachHeader = document.createElement('h4');
   outreachHeader.textContent = 'Outreach Campaign Optimizer';
+  outreachHeader.className = 'subheader';
 
   const sliderLabel = document.createElement('label');
   sliderLabel.textContent = 'Eligibility Categorization Model Threshold:';
+  sliderLabel.className = 'third-header';
+  sliderLabel.style.display = 'inline-flex';
+  sliderLabel.style.alignItems = 'center';
+
+  // Create a container for the icon and tooltip
+  const tooltipContainer = document.createElement('span');
+  tooltipContainer.style.position = 'relative';
+  tooltipContainer.style.display = 'inline-block';
+
+  // Create the question mark image
+  const tooltipIcon = document.createElement('img');
+  tooltipIcon.src = 'dashboarddata/questionmark.png';
+  tooltipIcon.alt = 'Help';
+  tooltipIcon.style.width = '20px';
+  tooltipIcon.style.height = '20px';
+  tooltipIcon.style.marginLeft = '8px';
+  tooltipIcon.style.cursor = 'pointer';
+  tooltipIcon.style.verticalAlign = 'middle';
+
+  // Create the tooltip popup
+  const tooltipPopup = document.createElement('span');
+  tooltipPopup.textContent = 'Adjusts the minimum eligibility score for properties to be included in the outreach. A higher threshold mean stricter eligibility and less properties included.';
+  tooltipPopup.style.visibility = 'hidden';
+  tooltipPopup.style.backgroundColor = '#333';
+  tooltipPopup.style.color = '#fff';
+  tooltipPopup.style.textAlign = 'left';
+  tooltipPopup.style.borderRadius = '6px';
+  tooltipPopup.style.padding = '8px 12px';
+  tooltipPopup.style.position = 'absolute';
+  tooltipPopup.style.zIndex = '9999';
+  tooltipPopup.style.left = '110%';
+  tooltipPopup.style.top = '50%';
+  tooltipPopup.style.transform = 'translateY(-50%)';
+  tooltipPopup.style.whiteSpace = 'normal';
+  tooltipPopup.style.width = '220px';
+  tooltipPopup.style.fontSize = '0.95em';
+  tooltipPopup.style.boxShadow = '0 2px 8px rgba(0,0,0,0.15)';
+
+  // Show/hide tooltip on hover
+  tooltipIcon.onmouseenter = () => { tooltipPopup.style.visibility = 'visible'; };
+  tooltipIcon.onmouseleave = () => { tooltipPopup.style.visibility = 'hidden'; };
+
+  // Assemble the tooltip
+  tooltipContainer.appendChild(tooltipIcon);
+  tooltipContainer.appendChild(tooltipPopup);
+
+  // Add the icon and tooltip to the label
+  sliderLabel.appendChild(tooltipContainer);
 
   const slider = document.createElement('input');
   slider.type = 'range';
@@ -80,6 +130,7 @@ export function renderDashboardPanel() {
 
   const costHeader = document.createElement('h4');
   costHeader.textContent = 'Estimated Outreach Cost';
+  costHeader.className = 'third-header';
 
   const costTable = document.createElement('table');
   costTable.className = 'cost-table';
@@ -95,6 +146,7 @@ export function renderDashboardPanel() {
 
   const benefitHeader = document.createElement('h4');
   benefitHeader.textContent = 'Estimated Potential Benefits';
+  benefitHeader.className = 'third-header';
 
   const benefitTable = document.createElement('table');
   benefitTable.className = 'benefit-table';
@@ -110,7 +162,7 @@ export function renderDashboardPanel() {
 const exportBtn = document.createElement('button');
 exportBtn.className = 'menu-button';
 exportBtn.textContent = 'Export Selected Addresses';
-exportBtn.style.marginTop = '20px';
+exportBtn.style.marginTop = '40px';
 
 exportBtn.addEventListener('click', () => {
   if (!lastClickedGEOID) {
@@ -119,15 +171,31 @@ exportBtn.addEventListener('click', () => {
   }
 
   const currentThreshold = parseFloat(document.getElementById('threshold-slider').value);
-  const propertyCount = countPropertiesInTract(lastClickedGEOID, currentThreshold);
+  // Find all properties in the tract that meet the threshold
+  const propertiesInTract = withoutExemptionData.features.filter(feature => {
+    return feature.properties.GEOID === lastClickedGEOID && feature.properties.X_pred1 >= currentThreshold;
+  });
 
-  if (propertyCount === 0) {
-    alert("No properties meet the current threshold in this tract.");
+  // Build CSV rows, filtering out rows with empty addresses
+  let csvRows = [["Address", "Owner Name"]];
+  propertiesInTract.forEach(feature => {
+    const address = feature.properties.location || "";
+    const ownerName = feature.properties.owner_1 || "";
+    // Only include rows where address is not empty or whitespace
+    if (address.trim() !== "") {
+      csvRows.push([address, ownerName]);
+    }
+  });
+
+  // If no rows, show alert and stop
+  if (csvRows.length === 1) {
+    alert("No properties with addresses meet the current threshold in this tract.");
     return;
   }
 
-  let csvContent = "objectid\n" + selectedObjectIds.join("\n");
-  const filename = `tract_${lastClickedGEOID}_${threshold}.csv`;
+  // Convert to CSV string
+  let csvContent = csvRows.map(row => row.map(cell => `"${cell}"`).join(",")).join("\n");
+  const filename = `tract_${lastClickedGEOID}_${currentThreshold}.csv`;
 
   const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
   const url = URL.createObjectURL(blob);
@@ -139,6 +207,37 @@ exportBtn.addEventListener('click', () => {
   link.click();
   document.body.removeChild(link);
 });
+
+
+const toggleContainer = document.createElement('div');
+toggleContainer.style.display = 'flex';
+toggleContainer.style.alignItems = 'center';
+toggleContainer.style.gap = '10px';
+toggleContainer.style.marginBottom = '15px';
+toggleContainer.style.paddingTop = '24px';
+
+const switchLabel = document.createElement('label');
+switchLabel.className = 'switch';
+switchLabel.style.margin = '0';
+
+const switchInput = document.createElement('input');
+switchInput.type = 'checkbox';
+switchInput.checked = isCommunityLayerVisible();
+
+switchInput.addEventListener('change', function() {
+  toggleCommunityLayer(this.checked);
+});
+
+const switchSlider = document.createElement('span');
+switchSlider.className = 'slider round';
+
+switchLabel.append(switchInput, switchSlider);
+
+const switchText = document.createElement('span');
+switchText.textContent = 'Community Sites';
+switchText.style.fontSize = '0.9em';
+
+toggleContainer.append(switchLabel, switchText);
 
   leftPanel.append(
     searchPrompt,
@@ -154,10 +253,10 @@ exportBtn.addEventListener('click', () => {
     costTable,
     benefitHeader,
     benefitTable,
-    exportBtn
+    exportBtn,
+    toggleContainer
   );
-}
-
+};
 // Store current tract data globally
 let currentTractData = null;
 let currentProperties = null;
@@ -173,13 +272,13 @@ export function updateTractCharacteristics(tractData, properties) {
   tbody.innerHTML = `
     <tr><td>Owner Occupancy Rate</td><td>${tractData.ownr_c_.toFixed(2)}%</td></tr>
     <tr><td>Limited English Rate</td><td>${tractData.lmtd_n1.toFixed(2)}%</td></tr>
-    <tr><td>Median Income</td><td>$${tractData.mdn_ncm_1.toFixed(2)}</td></tr>
+    <tr><td>Median Income</td><td>$${tractData.mdn_ncm.toFixed(2)}</td></tr>
     <tr><td>Population Density</td><td>${tractData.pp_dnst.toFixed(2)} people/sq mi</td></tr>
   `;
 
   // Update the Census Tract Name in the dashboard
   const tractNameElement = document.getElementById('tract-name');
-  tractNameElement.textContent = `Census Tract: ${tractData.GEOID}`;
+  tractNameElement.textContent = `Census Tract: ${tractData.trct_nm}`;
   lastClickedGEOID = tractData.GEOID;
 
   // Update the number of selected properties based on threshold
@@ -202,13 +301,13 @@ export function updateTractCharacteristics(tractData, properties) {
 }
 
 function countPropertiesInTract(tractGEOID, threshold) {
-  // Find properties in the same tract with _pred1 >= threshold
+  // Find properties in the same tract with X_pred1 >= threshold
   const propertiesInTract = withoutExemptionData.features.filter(feature => {
-    return feature.properties.GEOID === tractGEOID && feature.properties._pred1 >= threshold;
+    return feature.properties.GEOID === tractGEOID && feature.properties.X_pred1 >= threshold;
   });
 
-  // Store the objectids of those properties for exporting
-  selectedObjectIds = propertiesInTract.map(feature => feature.properties.objectid);
+  // Store the addresses of those properties for exporting
+  selectedAddresses = propertiesInTract.map(feature => feature.properties.location);
 
   // Return the count like before
   return propertiesInTract.length;
