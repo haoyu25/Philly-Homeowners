@@ -9,6 +9,13 @@ let lastClickedMarker = null;
 export let communityLayer = null;
 let isLayerVisible = false;
 
+function toTitleCase(str) {
+  if (!str || typeof str !== 'string') return '';
+  return str.replace(/\w\S*/g, function(txt) {
+    return txt.charAt(0).toUpperCase() + txt.substr(1).toLowerCase();
+  });
+}
+
 export function initializePropertyMap() {
   if (propertyMap) {
     propertyMap.remove();
@@ -295,11 +302,12 @@ export function updateWithoutExemptionLayer(threshold) {
 
   filteredFeatures.forEach(feature => {
     const [lng, lat] = feature.geometry.coordinates;
-    const { sm_ddrs, rntl_lc, cmmrcl_, avg_mr_, X_pred1 } = feature.properties;
+    const { sm_ddrs, rntl_lc, cmmrcl_, avg_mr_, X_pred1, location } = feature.properties;
 
     const popupContent = `
     <div class="property-popup">
       <b>Predicted Probability:</b> ${X_pred1.toFixed(2)}<br>
+      <b>Address:</b> ${toTitleCase(location)}<br>
       <b>Same Mailing Address:</b> ${sm_ddrs === 1 ? "Yes" : "No"}<br>
       <b>Rental License:</b> ${rntl_lc === 1 ? "Yes" : "No"}<br>
       <b>Commercial License:</b> ${cmmrcl_ === 1 ? "Yes" : "No"}<br>

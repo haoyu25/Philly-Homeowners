@@ -4,6 +4,22 @@ let lastClickedGEOID = null;
 let withoutExemptionData = null;
 let threshold = 0.7;
 
+const CAMPAIGN_PARAMS = {
+  doorKnocking: {
+    weekly_capacity: 1600,
+    hourly_rate: 34.80,
+    homes_per_hour: 10,
+    ref_fixed_costs: 33638,
+    indirect_rate: 0.10
+  },
+  directMail: {
+    printing_rate: 0.09,
+    mailing_rate: 0.29,
+    fixed_costs: { personnel: 2806, design: 726, supplies: 300 },
+    indirect_rate: 0.10
+  }
+};
+
 // Load in Exemption Data
 function loadWithoutExemptionData() {
   fetch('dashboarddata/property_without_exemption_final_reduced.geojson')
@@ -85,18 +101,26 @@ export function renderDashboardPanel() {
   tooltipPopup.style.borderRadius = '6px';
   tooltipPopup.style.padding = '8px 12px';
   tooltipPopup.style.position = 'absolute';
-  tooltipPopup.style.zIndex = '9999';
-  tooltipPopup.style.left = '110%';
-  tooltipPopup.style.top = '50%';
-  tooltipPopup.style.transform = 'translateY(-50%)';
+  tooltipPopup.style.zIndex = '9999999';
+  tooltipPopup.style.position = 'fixed';  // Changed from 'absolute'
+  tooltipPopup.style.pointerEvents = 'none';  // Allow clicking through tooltip
   tooltipPopup.style.whiteSpace = 'normal';
   tooltipPopup.style.width = '220px';
   tooltipPopup.style.fontSize = '0.95em';
   tooltipPopup.style.boxShadow = '0 2px 8px rgba(0,0,0,0.15)';
+  document.body.appendChild(tooltipPopup);
 
   // Show/hide tooltip on hover
-  tooltipIcon.onmouseenter = () => { tooltipPopup.style.visibility = 'visible'; };
-  tooltipIcon.onmouseleave = () => { tooltipPopup.style.visibility = 'hidden'; };
+  tooltipIcon.onmouseenter = (e) => {
+    const rect = tooltipIcon.getBoundingClientRect();
+    tooltipPopup.style.visibility = 'visible';
+    tooltipPopup.style.left = `${rect.right + 8}px`;
+    tooltipPopup.style.top = `${rect.top + window.scrollY}px`;
+  };
+  
+  tooltipIcon.onmouseleave = () => {
+    tooltipPopup.style.visibility = 'hidden';
+  };
 
   // Assemble the tooltip
   tooltipContainer.appendChild(tooltipIcon);
@@ -148,8 +172,17 @@ export function renderDashboardPanel() {
   benefitHeader.textContent = 'Estimated Potential Benefits';
   benefitHeader.className = 'third-header';
 
+  const uptakeMessage = document.createElement('div');
+  uptakeMessage.id = 'uptake-message';
+  uptakeMessage.style.fontStyle = 'italic';
+  uptakeMessage.style.margin = '0px 0 0px 0';
+  uptakeMessage.textContent = '*Assuming 10% Post-Outreach Uptake*';
+
+
   const benefitTable = document.createElement('table');
   benefitTable.className = 'benefit-table';
+  const benefitTableContainer = document.createElement('div');
+  benefitTableContainer.className = 'benefit-table-container';
   benefitTable.innerHTML = `<thead>
   <tr><th>Benefit Type</th><th>Value</th></tr>
   </thead>
@@ -181,13 +214,10 @@ exportBtn.addEventListener('click', () => {
   propertiesInTract.forEach(feature => {
     const address = feature.properties.location || "";
     const ownerName = feature.properties.owner_1 || "";
-    // Only include rows where address is not empty or whitespace
     if (address.trim() !== "") {
       csvRows.push([address, ownerName]);
     }
   });
-
-  // If no rows, show alert and stop
   if (csvRows.length === 1) {
     alert("No properties with addresses meet the current threshold in this tract.");
     return;
@@ -251,8 +281,11 @@ toggleContainer.append(switchLabel, switchText);
     selectedProperties,
     costHeader,
     costTable,
+
     benefitHeader,
+    uptakeMessage,
     benefitTable,
+    benefitTableContainer,
     exportBtn,
     toggleContainer
   );
@@ -272,7 +305,8 @@ export function updateTractCharacteristics(tractData, properties) {
   tbody.innerHTML = `
     <tr><td>Owner Occupancy Rate</td><td>${tractData.ownr_c_.toFixed(2)}%</td></tr>
     <tr><td>Limited English Rate</td><td>${tractData.lmtd_n1.toFixed(2)}%</td></tr>
-    <tr><td>Median Income</td><td>$${tractData.mdn_ncm.toFixed(2)}</td></tr>
+    <tr><td>Dominant Non-English Language</td><td>${tractData.dmnnt_l} <br> (${tractData.dmnnt_p}% of residents)</td></tr>
+    <tr><td>Median Income</td><td>$${tractData.mdn_ncm.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}</td></tr>
     <tr><td>Population Density</td><td>${tractData.pp_dnst.toFixed(2)} people/sq mi</td></tr>
   `;
 
@@ -287,8 +321,8 @@ export function updateTractCharacteristics(tractData, properties) {
   selectedPropertiesElement.textContent = `Number of Selected Properties: ${selectedPropertiesCount}`;
 
   // Calculate the total outreach costs for door-knocking and direct mailing
-  const doorKnockingTotal = calculateCostForDoorKnocking(selectedPropertiesCount);
-  const directMailingTotal = calculateCostForDirectMailing(selectedPropertiesCount);
+  const doorKnockingTotal = calculateDoorKnockingTotal(selectedPropertiesCount);
+  const directMailingTotal = calculateDirectMailingTotal(selectedPropertiesCount);
 
   // Update the cost table with the calculated totals
   updateCostTable(doorKnockingTotal, directMailingTotal);
@@ -313,12 +347,25 @@ function countPropertiesInTract(tractGEOID, threshold) {
   return propertiesInTract.length;
 }
 
-function calculateCostForDoorKnocking(propertiesCount) {
-  return (32000 + (3.5 * propertiesCount)) * 1.1;
+function calculateDoorKnockingTotal(propertiesCount) {
+  const params = CAMPAIGN_PARAMS.doorKnocking;
+  const canvassingHours = propertiesCount / params.homes_per_hour;
+  const canvassingCost = canvassingHours * params.hourly_rate;
+  const totalDirectCost = params.ref_fixed_costs + canvassingCost;
+  const indirectCost = totalDirectCost * params.indirect_rate;
+  const totalCost = totalDirectCost + indirectCost;
+  return totalCost;
 }
 
-function calculateCostForDirectMailing(propertiesCount) {
-  return (3500 + (0.38 * propertiesCount)) * 1.1;
+function calculateDirectMailingTotal(propertiesCount) {
+  const params = CAMPAIGN_PARAMS.directMail;
+  const fixedCosts = params.fixed_costs.personnel + params.fixed_costs.design + params.fixed_costs.supplies;
+  const printingCost = propertiesCount * params.printing_rate;
+  const mailingCost = propertiesCount * params.mailing_rate;
+  const totalDirectCost = fixedCosts + printingCost + mailingCost;
+  const indirectCost = totalDirectCost * params.indirect_rate;
+  const totalCost = totalDirectCost + indirectCost;
+  return totalCost;
 }
 
 function calculateHomeownerTaxSavings(propertiesCount) {
@@ -351,36 +398,20 @@ function updateBenefitTable(homeownerTaxSavings) {
   // Clear out existing rows
   benefitTableBody.innerHTML = '';
 
-  // Calculate values
+  // Calculate value
   const directBenefit = homeownerTaxSavings;
-  const indirectBenefit = directBenefit * 2;
-  const totalBenefit = directBenefit + indirectBenefit;
 
-  // Build the rows
+  // Build only the direct benefit row
   const directRow = document.createElement('tr');
   directRow.innerHTML = `
     <td>Direct Homeowner Savings</td>
     <td>$${directBenefit.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}</td>
   `;
 
-  const indirectRow = document.createElement('tr');
-  indirectRow.innerHTML = `
-    <td>Broader Indirect Benefits</td>
-    <td>$${indirectBenefit.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}</td>
-  `;
-
-  const totalRow = document.createElement('tr');
-  totalRow.innerHTML = `
-    <td><strong>Total</strong></td>
-    <td><strong>$${totalBenefit.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}</strong></td>
-  `;
-
-  // Append rows to table
+  // Append only the direct benefit row to the table
   benefitTableBody.appendChild(directRow);
-  benefitTableBody.appendChild(indirectRow);
-  benefitTableBody.appendChild(totalRow);
 
-  // Add the "Assuming 10% Post-Outreach Uptake" message under the table
+  // (Optional) Keep the uptake message if you want
   const tableContainer = document.querySelector('.benefit-table-container');
   let existingMessage = document.getElementById('uptake-message');
   if (!existingMessage) {
