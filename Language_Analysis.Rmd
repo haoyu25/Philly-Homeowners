@@ -1,5 +1,5 @@
 ---
-title: "Untitled"
+title: "Philadelphia Census Tract Language Analysis"
 output: html_document
 date: "2025-04-28"
 ---
@@ -7,7 +7,7 @@ date: "2025-04-28"
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
 
-language_map_data <- st_read("C:/Users/rache/Documents/Github/Philly-Homeowners/data/philly_language_dominance.geojson")
+language_map_data <- st_read("./data/philly_language_dominance.geojson")
 ```
 
 
@@ -163,9 +163,9 @@ The map reveals clear patterns of language communities in Philadelphia, such as 
 # Join w/ Predictions
 ```{r pressure, echo=FALSE}
 # First read in both datasets
-language_data <- st_read("C:/Users/rache/Documents/philly_language_dominance.geojson")
-properties_no_exemption <- st_read("C:/Users/rache/Documents/Github/Philly-Homeowners/COSTBeni/property_without_exemption_tractdata.geojson")
+language_data <- st_read("./data/philly_language_dominance.geojson")
 
+properties_no_exemption <- st_read("./data/properties_wo_exemption_0505pred.geojson")
 
 # Join the datasets, keeping only the new columns we want from language_data
 properties_with_language <- properties_no_exemption %>%
@@ -178,12 +178,13 @@ properties_with_language <- properties_no_exemption %>%
   )
 
 # Save the new combined dataset
-st_write(properties_with_language, 
-         "C:/Users/rache/Documents/properties_without_exemption_language.geojson", 
-         delete_dsn = TRUE)
+#st_write(properties_with_language, 
+         #"./data/properties_without_exemption_language_0505.geojson", 
+         #delete_dsn = TRUE)
 ```
+
+
 ```{r}
-# Check the new columns
 names(properties_with_language)
 
 # Look at a few rows to see how the new data looks
@@ -268,5 +269,39 @@ top_tracts <- language_data %>%
 # Display both tables
 language_summary
 top_tracts
+```
+
+```{r}
+# DO NOT RUN THIS CODE- this is from the first join before updating predictions. This is for comparison only
+# Check the new columns
+names(properties_with_language)
+
+# Look at a few rows to see how the new data looks
+head(properties_with_language %>% 
+     select(GEOID, tract_name, dominant_language, dominant_pct))
+
+[1] "OBJECTID"          "Join_Count"        "TARGET_FID"        "objectd"           "cnss_tr"           "exemptn"           "X_pred1"          
+ [8] "exm_0_5"           "exm_0_6"           "exm_0_7"           "exm_0_8"           "exm_0_9"           "sm_ddrs"           "is_deep"          
+[15] "large_r"           "ownr_cn"           "rntl_lc"           "cmmrcl_"           "blnc_rt"           "avg_mr_"           "sd_mrk_"          
+[22] "hs_rcn_"           "ltst_d_"           "pct_fr_"           "ovrll__"           "pvrty_r"           "bch_dg_"           "yng_wn_"          
+[29] "snr_wn_"           "fmly_h_"           "lmtd_n_"           "dvrsty_"           "mdn_ncm"           "ownr_c_"           "cst_br_"          
+[36] "mrtgg__"           "mdn_hm_"           "GEOID"             "ALAND20"           "medin_g"           "totl_pp"           "occpd_n"          
+[43] "vcnt_nt"           "rntr_hh"           "ownr_hh"           "pct_wht"           "pct_blc"           "pct_hsp"           "pct_asn"          
+[50] "pct_fr1"           "ovrll_1"           "ownr_v_"           "rntl_v_"           "bch_dg1"           "pvrty_r_1"         "yng_wn1"          
+[57] "mddl_w_"           "snr_wn1"           "fmly_h1"           "lmtd_n1"           "pp_dnst"           "mdn_ncm_1"         "mdn_hm1"          
+[64] "mdn_mlt"           "cst_br1"           "mrtgg_1"           "dvrsty1"           "gntrfc_"           "tract_name"        "dominant_language"
+[71] "dominant_pct"      "geometry"         
+Simple feature collection with 6 features and 4 fields
+Geometry type: POINT
+Dimension:     XY
+Bounding box:  xmin: -75.25724 ymin: 39.9228 xmax: -75.12713 ymax: 40.05616
+Geodetic CRS:  WGS 84
+        GEOID   tract_name   dominant_language dominant_pct                   geometry
+1 42101006400     Tract 64   Other Unspecified         11.2  POINT (-75.24368 39.9228)
+2 42101015102 Tract 151.02             Spanish          0.6 POINT (-75.17936 39.98911)
+3 42101016500    Tract 165             Spanish         11.1 POINT (-75.14811 39.99009)
+4 42101022000    Tract 220 Other Indo European          2.6 POINT (-75.25724 40.05616)
+5 42101002400     Tract 24             Spanish          7.3 POINT (-75.15825 39.93792)
+6 42101016002 Tract 160.02             Spanish          3.9 POINT (-75.12713 39.97713)
 ```
 
