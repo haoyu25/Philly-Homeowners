@@ -7,14 +7,15 @@ output: html_document
 
 ```{r}
 library(readr)
-fp_data <- read_csv("~/Desktop/false_positive.csv")
-glimpse(fp_data)
+library(dplyr)
+fp_data_0505 <- read_csv("~/Downloads/fp_data_0505.csv")
+glimpse(fp_data_0505)
 ```
 
 ```{r}
 library(sf)
 
-fp_sf <- st_as_sf(fp_data, coords = c("lon_4326", "lat_4326"), crs = 4326)
+fp_sf_0505 <- st_as_sf(fp_data_0505, coords = c("lon_4326", "lat_4326"), crs = 4326)
 ```
 
 ```{r}
@@ -28,7 +29,7 @@ library(ggplot2)
 
 ggplot() +
   geom_sf(data = philly_shapefile, fill = "white", color = "black") +  
-  geom_sf(data = fp_sf, color = "red", alpha = 0.5, size = 0.1) +       
+  geom_sf(data = fp_sf_0505, color = "red", alpha = 0.5, size = 0.1) +       
   labs(
     title = "False Positive Properties in Philadelphia",
     subtitle = "Predicted as Exempted but Actually Not",
@@ -42,7 +43,7 @@ ggplot() +
 ggplot() +
   geom_sf(data = philly_shapefile, fill = "white", color = "gray80") +
   stat_density2d(
-    data = fp_data, 
+    data = fp_data_0505, 
     aes(x = lon_4326, y = lat_4326, fill = ..level..), 
     geom = "polygon", alpha = 0.6, color = NA
   ) +
@@ -55,7 +56,7 @@ ggplot() +
 
 # DBSCAN
 ```{r}
-fp_proj <- st_transform(fp_sf, 26918)
+fp_proj <- st_transform(fp_sf_0505, 26918)
 
 coords <- st_coordinates(fp_proj)
 ```
@@ -224,6 +225,23 @@ philly_moran <- philly_moran %>%
 ```
 
 ```{r}
+library(dplyr)
+
+philly_moran %>%
+  count(cluster_type)
+```
+
+```{r}
+# 计算 High-High tracts 中总的 false positive 数量
+philly_moran %>%
+  filter(cluster_type == "High-High") %>%
+  summarise(total_fp_in_highhigh = sum(total_fp, na.rm = TRUE))
+
+```
+
+
+
+```{r}
 library(ggplot2)
 
 ggplot(philly_moran) +
@@ -245,6 +263,68 @@ ggplot(philly_moran) +
   theme_minimal()
 
 ```
+
+```{r}
+library(ggplot2)
+
+ggplot(philly_moran) +
+  geom_sf(aes(fill = cluster_type), color = "gray90", size = 0.2) +
+  scale_fill_manual(
+    values = c(
+      "High-High" = "#E42524"
+    ),
+    name = "LISA Cluster"
+  ) +
+  labs(
+    title = "LISA Cluster Map (Local Moran's I)",
+    subtitle = "Clusters of Missed Exemption Opportunities"
+  ) +
+  theme_minimal()
+
+```
+
+```{r}
+highhigh_tracts <- philly_moran %>%
+  filter(cluster_type == "High-High")
+
+highhigh_union <- highhigh_tracts %>%
+  st_union() %>%         
+  st_sf()               
+
+st_write(highhigh_union, "highhigh_union_0505.geojson", driver = "GeoJSON")
+```
+
+
+
+
+
+
+
+```{r}
+library(sf)
+library(dplyr)
+
+highhigh_sf <- philly_moran %>% 
+  filter(cluster_type == "High-High")
+
+highhigh_sf <- highhigh_sf %>%
+  mutate(centroid = st_centroid(geometry)) %>%
+  mutate(lat = st_coordinates(centroid)[, 2])
+
+lat_mid <- median(highhigh_sf$lat, na.rm = TRUE)
+
+highhigh_summary <- highhigh_sf %>%
+  mutate(region = ifelse(lat >= lat_mid, "North Group", "South Group")) %>%
+  group_by(region) %>%
+  summarise(
+    num_tracts = n(),
+    total_fp = sum(total_fp, na.rm = TRUE)
+  )
+
+print(highhigh_summary)
+```
+
+
 
 
 ```{r}

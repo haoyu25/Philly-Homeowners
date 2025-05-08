@@ -36,7 +36,7 @@ palette5 <- c('#BF4146', '#E5A186', '#F1C8BB', '#B3CADB','#6683a9')
 
 # Combining all datasets 
 ```{r}
-properties_model<-fread("C:/Users/13472/Desktop/practicum/properties_model.csv")
+properties_model<-fread("~/Downloads/properties_model (1).csv")
 
 glimpse(properties_model)
 ```
