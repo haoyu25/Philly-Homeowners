@@ -274,7 +274,7 @@ export function updateWithoutExemptionLayer(threshold) {
     iconCreateFunction: function (cluster) {
       const count = cluster.getChildCount();
       const minSize = 24;
-      const maxSize = 120;
+      const maxSize = 80;
       const minCount = 1;
       const maxCount = 2000;
       const size = minSize + (maxSize - minSize) * ((Math.min(count, maxCount) - minCount) / (maxCount - minCount));
