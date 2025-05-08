@@ -536,13 +536,13 @@ table { min-width: 300px; }
 td:nth-child(2) { text-align: right; }
 
 #tract-name {
-    font-size: 1.8rem !important; 
+    font-size: 1.2rem !important; 
     font-weight: bold;
     margin-bottom: 0.5em;
   }
 
 #selected-properties {
-    font-size: 1.4rem !important; 
+    font-size: 1.2rem !important; 
     font-weight: bold;
     margin-bottom: 0.5em;
     color: #a30000 !important;
@@ -560,7 +560,7 @@ td:nth-child(2) { text-align: right; }
   }
 
   .third-header {
-    font-size: 1.25rem;     /* 20px */
+    font-size: 1rem;     /* 20px */
     font-weight: bold;
     text-decoration: underline;
     text-decoration-thickness: 2px;
