@@ -1,0 +1,68 @@
+---
+title: "Properties_wo_exemption_jointract"
+author: "Whitney Zhu"
+date: "2025-05-08"
+output: html_document
+---
+# 0505
+
+```{r}
+library(data.table) 
+library(dplyr)
+xgb_full_pred_0505 <- fread("~/Downloads/xgb_full_pred_0505.csv")
+
+colnames(xgb_full_pred_0505)
+
+head(xgb_full_pred_0505)
+
+glimpse(xgb_full_pred_0505)
+```
+```{r}
+library(sf)
+
+points_without_exemption <- xgb_full_pred_0505 %>%
+  filter(exemption == 0) 
+
+points_without_exemption_sf <- st_as_sf(points_without_exemption, 
+                                coords = c("lon_4326", "lat_4326"), 
+                                crs = 4326)  
+```
+
+```{r}
+glimpse(points_without_exemption_sf)
+```
+
+
+```{r}
+points_without_exemption_cleaned <- points_without_exemption_sf %>%
+  dplyr::select(
+    objectid, 
+    census_tract, 
+    same_address,
+    rental_license,
+    commercial_license,
+    avg_market_value,
+    owner_occ_rate,
+    limited_english_rate,
+    median_income,
+    .pred_1,
+    exemption.pred0.5,
+    exemption.pred0.6,
+    exemption.pred0.7,
+    exemption.pred0.8,
+    exemption.pred0.9
+  )
+
+glimpse(points_without_exemption_cleaned)
+
+```
+
+```{r}
+st_write(points_without_exemption_cleaned, "~/Desktop/Penn/25spring/practicum/0505properties/points_without_exemption_cleaned.shp")
+```
+
+
+
+
+
+
