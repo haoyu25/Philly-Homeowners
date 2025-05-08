@@ -1,7 +1,7 @@
 ---
 title: "Philly_Homestead_Exemption_Final"
 author: "Claudia Low, Haoyu Zhu, Rachel Midgett, Wenjun Zhu"
-date: "2025-04-15"
+date: "2025-05-09"
 output:
   rmdformats::material:
     code_download: true
@@ -130,6 +130,14 @@ There is a column 'homestead_exemption' within this dataset which indicates the 
 
 ```{r}
 properties <- fread("data/opa_properties_public.csv")
+library(stringr)
+# Detect if 'description' contains 'Data analyst'
+properties$has_code <- str_detect(data, "Z50")
+print(data)
+any(grepl("Z75", as.matrix(properties), fixed = TRUE))
+rows_with_Z50 <- apply(properties, 1, function(row) any(grepl("Z50", row, fixed = TRUE)))
+properties[rows_with_Z50, ]
+
 filtered_properties_ex <- properties %>%
   mutate(exemption = ifelse(homestead_exemption == 0, 0, 1))
 ```
@@ -437,7 +445,6 @@ homestead_pattern <- ggplot(census_tracts_enriched) +
   )
 ```
 
-
 ```{r}
 homestead_pattern
 #ggsave("outputs/homestead-exemption-pattern.png", homestead_pattern, width = 10, height = 6)
@@ -684,9 +691,6 @@ ggplot(census_tracts_enriched %>%
 ### Predictor Variables
 
 #### Predictor Variables 1 & 2: Eligibility Characteristics
-
-
-
 
 The first predictor variable is based off the key eligibility criteria of the Homestead Exemption program -- whether a homeowner resides long-term in the property itself. The closest proxy of this is whether the mailing street ('mailing_street') address is the same as the property street address ('location'), as the mailing address of the owner is often where the owner lives long-term.
 
@@ -2050,7 +2054,7 @@ model_rec <- recipe(exemption ~ ., data = properties_train)  %>%
 
 ## Build Model
 
-An XGBoost was then defined with 200 trees, while the number of variables randomly sampled at each split and the minimum number of observation in a terminal node are tuned with with the help of a hyperparameter grid search.
+An classification type XGBoost was then defined with 200 trees, while the number of variables randomly sampled at each split and the minimum number of observation in a terminal node are tuned with with the help of a hyperparameter grid search.
 
 ```{r, include=FALSE}
 ## Model specifications
@@ -2092,7 +2096,7 @@ xgb_tuned <- xgb_wf %>%
                   metrics   = metrics)
 ```
 
-The grid search is conducted with the best model selected based on having the lowest Root Mean Squared Error.
+The grid search is conducted with the best model selected based on having the lowest false negative rate.
 ```{r}
 ## metrics across grid
 collect_metrics(xgb_tuned)
@@ -2163,7 +2167,6 @@ ggplot(xgb_val_pred_geo, aes(d = as.numeric(exemption), m = .pred)) +
   theme_minimal()
 ```
 
-
 The density distribution of the predicted probabilities were then plotted. 
 ```{r}
 
@@ -2197,13 +2200,17 @@ xgb_full_pred <- xgb_full_pred %>%
 fwrite(xgb_full_pred, "xgb_full_pred.csv")
 ```
 
-
 # Target Outreach
+The target outreach group are the false positives. At a 0.5 threshold, this amounts to 75,708 houses.
 
+## Neighborhood Demographic Profiles
+In terms of demographic across census tracts, areas with higher education and higher senior populations tend to have a higher propeortion of properties with a higher percentage of false positives, indicating missed exemption opportunities. People in those neighborhoods are more likely to get flagged by the model. This could reflect true differences in eligibility. For example, higher education levels may indicate more college students who do not own their homes, while areas with large senior populations may potentially reflect lower access and awareness of available exemptions.
 
+# Biasness Check of Model
+T
+```{r}
 
-
-
+```
 
 
 
@@ -2212,11 +2219,11 @@ fwrite(xgb_full_pred, "xgb_full_pred.csv")
 
 
 # Outreach Strategies and Associated Costs and Benefits
-Two main potential outreach strategies are proposed. The costs for each of these strategies were then estimated based on existing cost structure references.
+Three main potential outreach strategies are proposed. The costs for each of these strategies were then estimated based on existing cost structure references.
 
 The first potential strategy is a direct mailing campaign, which involves sending flyers out to all properties identified as false positives by the model. The flyer would contain information on what the homestead exemption program is, its eligibility criteria, instructions on how to apply, and relevant contact information, translated across different languages.  
 
-The next potential strategy is a door-knocking campaign. This involves going door-to-door to identified properties and having canvassers knock on the doors, sharing with homeowners who respond about the homestead exemption program. This face-to-face interaction can highly effective in raising awareness about the program, how to apply to it, and directly address any queries or doubts that the homeowner may have about it. From July 2023 to June 2024, the City of Philadelphia conducted a door-knocking campaign under the Overdose Awareness Canvassing and Trusted Community Messenger Program. Door-knocking is proposed to be conducted for high potential areas with clusters of missed homestead exemption opportunities. This optimizes limited resources in travel time and costs between properties for door knocking. This campaign would therefore only target the 13,031 homes identified in the two clusters, Northeast and South Philadelphia, which have 6,669 and 6,362 target outreach homes respectively.
+The next potential strategy is a door-knocking campaign. This involves going door-to-door to identified properties and having canvassers knock on the doors, sharing with homeowners who respond about the homestead exemption program. This face-to-face interaction can highly effective in raising awareness about the program, how to apply to it, and directly address any queries or doubts that the homeowner may have about it. From July 2023 to June 2024, the City of Philadelphia conducted a door-knocking campaign under the Overdose Awareness Canvassing and Trusted Community Messenger Program. Door-knocking is proposed to be conducted for high potential areas with clusters of missed homestead exemption opportunities. This optimizes limited resources in travel time and costs between properties for door knocking. This campaign would therefore only target the 12,302 homes identified in the two clusters, Northeast and South Philadelphia, which have 6,669 and 6,362 target outreach homes respectively.
 
 ```{r, message=FALSE, warning=FALSE}
 costs <- data.frame(
@@ -2238,10 +2245,23 @@ kable(costs, align = "lrr", escape = FALSE, caption = "Program Outreach Costs by
 
 ```
 
-Another potential strategy is to reach out to community organizations to educate organization leaders and staff about the exemption program, who can then spread the word to their members and the immediate local community about it. This may include social service organization or religious organizations, such as the United Communities Houston Center or the City of Life church in South Philadelphia.
+Another potential strategy is to reach out to community organizations to educate organization leaders and staff about the exemption program, who can then spread the word to their members and the immediate local community about it. This may include community centres or religious organizations, such as the City of Life church in South Philadelphia.
+
+The estimated costs of the outreach strategies were calculated based on the cost structures from the Opioid Response Unit Door-Knocking Campaign and USPS Direct Mail Advertising cost calculator.
+
+Door Knocking:
+Fixed Costs: Personnel + Supplies
+Variable Costs: labor $34.80 /hour × (Properties ÷ 10 homes/hr)
+Indirect Costs: 10% of total direct costs
+Weekly Capacity: 1,600 homes (8 staff × 20 hrs × 10 homes/hr)
+
+Direct Mailing:
+Fixed Costs: Personnel + Design + Supplies
+Variable Costs: Printing $0.09 per piece | Mailing $0.29 per piece
+Indirect Costs: 10% of total direct costs
 
 
-The potential benefits of such outreach campaigns are vast. With an assumption that 10% of all homeowners we outreach to then successfully enroll into a homestead exemption, there can be up to $10,815,669 of savings across the homeowners. Majority of the homestead exemptions have been observed to receive the maximum eligible exemption. Comparing this to the total outreach cost for both strategies of $18,4132, the outreach can bring massive public benefit for a relatively small amount. Furthermore, this estimate is does not even include the huge unquantified benefits of increased housing stability for homeowners and their families. This reduces transience and encourages owner occupancy and long term residency, which supports consistent neighborhood networks, fostering more engaged and invested local communities. Owner-occupied homes are also more likely to be well-maintained as there is greater incentive to upkeep the property, which benefits neighborhood aesthetics and property values.
+The potential benefits of such outreach campaigns are vast. Based on the Data and Marketing Association, the average response rate to a direct mailing campaign ranges between 4 and 9%. With an assumption that 5% of all homeowners we outreach to then successfully enroll into a homestead exemption, the total direct benefit in homeowner savings would be Number of Properties × 0.05 × (up to) $1,399. Using this formula, there can be up to $5,295,774.60 of savings across the homeowners. Majority of the homestead exemptions have been observed to receive the maximum eligible exemption. Comparing this to the total outreach cost for a direct mailing campaign of $35,861, the outreach can bring massive public benefit for a relatively small amount. Furthermore, this estimate does not even include the huge unquantified benefits of increased housing stability for homeowners and their families. This reduces transience and encourages owner occupancy and long term residency, which supports consistent neighborhood networks, fostering more engaged and invested local communities. Owner-occupied homes are also more likely to be well-maintained as there is greater incentive to upkeep the property, which benefits neighborhood aesthetics and property values.
 
 # Comparison to a business-as-usual filtering approach
 ```{r}
@@ -2278,7 +2298,10 @@ filtered_properties <- filtered_properties_resonly %>%
 
 residential_properties <- filtered_properties %>% filter(is_residential == 1)
 ```
-It is then explroed how the use of the model compares to an alternative approach of a filtered list of properties. The properties are filtered to residential-only, non-corporation owned properties with the same address as its mailing address. This results in 333,623 properties, which would cost $143,668 to execute solely the direct mailing campaign. Using a machine learning model to identify properties to reach out to substantially narrows down the target number, allowing for huge cost-savings and an effective use of limited resources. The spatial analysis of false positives also allow for more targeted door-knocking to take place.
+It is then explored how the use of the model compares to an alternative approach of a filtered list of properties. The properties are filtered to residential-only, non-corporation owned properties with the same address as its mailing address. This results in 333,623 properties, which would cost $143,669 to execute solely the direct mailing campaign. Using a machine learning model to identify properties to reach out to substantially narrows down the target number, allowing for huge cost-savings and an effective use of limited resources. The spatial analysis of false positives also allow for more targeted door-knocking to take place.
 
 
-# Biasness Check of Model
+# Dashboard
+Our dashboard: https://haoyu25.github.io/Philly-Homeowners/ is for Philly Stat 360 and potential outreach campaign managers to explore where properties predicted to be likely eligible for the Homestead Exemption program are located, as well as neighborhood profiles of areas. The threshold slider allows one to change the eligibility threshold of the model, where a lower value indicates a more lenient threshold which would include more properties in the census tract, while a higher value indicates a stricter threshold. The exported spreadsheet contains all addresses and owner names of the properties in the selected census tract, based on the chosen threshold level.
+
+Additional features include the address search bar function and the community sites toggle button. Community sites include places of worship, libraries, marketplaces and comomunity centers, extracted from OpenStreetMap. These are potential locations that canvassers can reach out to and partner, including requesting support for disseminating information about the Homestead Exemption program, as well as putting up informational material such as posters in these locations.
