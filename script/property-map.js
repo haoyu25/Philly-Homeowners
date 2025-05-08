@@ -359,11 +359,19 @@ export function updateWithoutExemptionLayer(threshold) {
     });
     
     marker.on('click', function (e) {
-      updateTractCharacteristics(feature.properties);
+      const tractGEOID = feature.properties.GEOID;
+      const currentThreshold = parseFloat(document.getElementById('threshold-slider').value);
     
-      // Center and zoom the map on this marker
+      const propertiesInTract = withoutExemptionData.features.filter(f => 
+        f.properties.GEOID === tractGEOID && 
+        f.properties.X_pred_1 >= currentThreshold
+      );
+    
+      const tractData = propertiesInTract[0]?.properties || feature.properties;
+    
+      updateTractCharacteristics(tractData, propertiesInTract);
+    
       propertyMap.panTo(marker.getLatLng());
-    
       if (lastClickedMarker) {
         lastClickedMarker.setIcon(defaultIcon);
       }

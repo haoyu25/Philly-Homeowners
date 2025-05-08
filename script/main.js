@@ -53,15 +53,15 @@ function showIntroPopup() {
     <h4 style="margin-bottom: 0.75rem;">Legend</h4>
     <div style="display: flex; flex-direction: column; align-items: center; gap: 0.5rem; font-size: 1.25rem;">
       <span>
-        <span style="display: inline-block; width: 18px; height: 18px; background: #000000; border-radius: 50%; margin-right: 0.5rem; vertical-align: middle;"></span>
+        <span style="display: inline-block; width: 18px; height: 18px; background: #000000; border-radius: 50%; margin-right: 0.5rem; vertical-align: middle; font-size: 1.1rem;"></span>
         Properties already enrolled in Homestead Exemption
       </span>
       <span>
-        <span style="display: inline-block; width: 18px; height: 18px; background: #d32f2f; border-radius: 50%; margin-right: 0.5rem; vertical-align: middle;"></span>
+        <span style="display: inline-block; width: 18px; height: 18px; background: #d32f2f; border-radius: 50%; margin-right: 0.5rem; vertical-align: middle; font-size: 1.1rem;"></span>
         Properties not currently enrolled in Homestead Exemption
       </span>
       <span>
-        <span style="display: inline-block; width: 22px; height: 14px; background: #ffeb3b; border-radius: 0.2rem; margin-right: 0.5rem; vertical-align: middle; border: 1px solid #bdb000;"></span>
+        <span style="display: inline-block; width: 22px; height: 14px; background: #ffeb3b; border-radius: 0.2rem; margin-right: 0.5rem; vertical-align: middle; font-size: 1.1rem; border: 1px solid #bdb000;"></span>
         Yellow areas - Hotspots based on 0.5 threshold
       </span>
     </div>
