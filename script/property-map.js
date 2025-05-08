@@ -212,7 +212,7 @@ fetch('dashboarddata/community_sites_points.geojson')
 });
 
 // Add highhigh union polygons
-fetch('dashboarddata/highhigh_union.json')
+fetch('dashboarddata/highhigh_union_0505.json')
 .then(response => response.json())
 .then(data => {
   highHighLayer = L.geoJSON(data, {
