@@ -1,0 +1,23 @@
+.header-panel {
+    background-color: #358db0 !important; 
+    min-height: 144px;
+    position: relative;
+    z-index: 3;
+}
+
+body {
+    font-family: "Helvetica Neue", Helvetica, Arial, sans-serif;
+    font-size: 14px;
+    line-height: 1.42857143;
+    color: #333;
+    background-color: #f7fcfc; 
+}
+
+.nav-tabs {
+    background: #358db0; /* 默认背景色 */
+}
+
+.nav-tabs a, .nav-tabs a:focus, .nav-tabs a:hover {
+    color: white !important; /* 文字颜色为白色 */
+    background-color: #004c99 !important; /* 背景颜色为深蓝色 */
+}

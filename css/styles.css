@@ -1,0 +1,660 @@
+/* General Reset and Base Styles */
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+html {
+  font-size: 16px;
+}
+
+html, body {
+  height: 100%;
+}
+
+body {
+    font-family: 'Rubik', sans-serif;
+    background-color: #f8f9fa;
+    color: #333;
+    line-height: 1.6;
+    display: flex;
+    flex-direction: column;
+  }
+
+h2 {
+    font-size: 1.2rem;
+    font-weight: bold;
+}
+
+/* Header Styles */
+.header {
+    display: flex;
+    align-items: center;
+    padding: 1rem 2rem;
+    background-color: #0f4d90;
+    flex: 0 0 auto;
+    border-bottom: 2px solid #ddd;
+    gap: 1rem;
+    z-index: 10;
+    
+}
+
+h2 {
+    color: white;
+    font-size: 24px;
+}
+
+h5 {
+    color: black;
+    font-size: 1.4rem;
+}
+
+.image-container {
+    display: flex;
+    align-items: center;
+}
+
+.image-container img {
+    max-height: 60px;
+    width: auto;
+}
+
+/* CSV Button aligned right */
+.csv-button-container {
+    margin-left: auto;
+}
+
+.csv-button {
+    background-color: #0066cc;
+    color: #fff;
+    border: none;
+    padding: 0.5rem 1rem;
+    border-radius: 5px;
+    cursor: pointer;
+    font-size: 1rem;
+}
+
+.csv-button:hover {
+    background-color: #004c99;
+}
+
+/* Main Layout */
+.main-container {
+  display: grid;
+  grid-template-columns: 0.6fr 2fr;
+  grid-template-rows: 1fr;
+  height: 100vh;      /* Fill the viewport */
+  overflow: visible;  /* Avoid clipping */
+}
+
+/* Initially hide the left panel with opacity and transform */
+.left-panel {
+    opacity: 0;
+    transform: translateX(-100%);
+    transition: opacity 0.5s ease, transform 0.5s ease;
+}
+
+.left-panel.show {
+    opacity: 1;
+    transform: translateX(0);
+}
+
+/* Left Column */
+.left-column {
+    background-color: #fff;
+    border: 1px solid #ccc;
+    border-radius: 8px;
+    overflow-y: auto; /* Enable vertical scrolling */
+    padding: 1rem; /* Optional: padding for nicer layout */
+    box-sizing: border-box; /* Include padding in height calculation */
+    height: 100%;       /* Fill the grid row, not viewport */
+}
+
+/* Right Column */
+.right-column {
+    position: relative;
+    display: flex;
+    height: 100%;
+    flex-direction: column;
+    gap: 1rem;
+}
+
+/* Description Panel */
+#description-panel {
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+}
+
+.main-description {
+    font-size: 1.1rem;
+    line-height: 1.5;
+  }
+
+.semibold {
+    font-weight: 600;
+}
+
+/* Menu Buttons */
+.menu-button-container {
+    display: flex;
+    flex-direction: column;
+    gap: 0.9rem;
+    align-items: flex-start;
+}
+
+.menu-button {
+    font-size: 1rem; /* Increase font size */
+    padding: 15px 30px; /* Increase button padding */
+    margin: 10px 0; /* Add margin for spacing */
+    border-radius: 8px; /* Rounded corners */
+    background-color: #0066cc;
+    color: white;
+    cursor: pointer;
+    transition: background-color 0.3s ease;
+  }
+  
+  .menu-button:hover {
+    background-color: #085b94; /* Darker shade for hover effect */
+  }
+
+/* Map Search + Controls */
+.map-search-controls {
+    display: flex;
+    align-items: center;
+    gap: 0.8rem;
+    margin-bottom: 0.5rem;
+}
+
+#address-search {
+    flex-grow: 1;
+    padding: 0.5rem;
+    font-size: 1rem;
+    border: 1px solid #ccc;
+    border-radius: 4px;
+}
+
+/* Search icon styles */
+/* Search Button styling */
+#search-btn {
+    background-color: #0066cc;
+    border: none;
+    padding: 8px;
+    border-radius: 5px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    height: 40px; /* match search bar height */
+    width: 40px;
+    transition: background-color 0.2s ease;
+}
+
+#search-btn:hover {
+    background-color: #004c99;
+}
+
+/* Smaller image inside the button */
+#search-icon {
+    width: 18px;
+    height: 18px;
+}
+
+/* Radius Button */
+.map-button {
+    background-color: #0066cc;
+    color: #fff;
+    border: none;
+    padding: 0.5rem 1rem;
+    border-radius: 5px;
+    cursor: pointer;
+    font-size: 1rem;
+}
+
+.map-button:hover {
+    background-color: #004c99;
+}
+
+/* Address Choices Dropdown */
+#address-choices {
+    list-style: none;
+    background-color: white;
+    border: 1px solid #ccc;
+    max-height: 150px;
+    overflow-y: auto;
+    margin-top: 0.5rem;
+    position: absolute;
+    z-index: 1000;
+    width: 100%;
+}
+
+.hidden {
+    display: none;
+}
+
+/* Map */
+#map {
+    flex-grow: 1;
+    height: 600px;
+    border: 1px solid #ccc;
+    border-radius: 8px;
+}
+
+.main-map {
+    flex: 1;
+    height: 100%;
+    border: 1px solid #ccc;
+    border-radius: 8px;
+}
+
+
+/* Popup (overlay) */
+.popup {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background-color: rgba(0, 0, 0, 0.7); /* Dark overlay */
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    overflow: auto; 
+    z-index: 9999;
+}
+
+/* Popup content - larger size */
+.popup-content {
+    background-color: white;
+    padding: 0px 18px 18px;
+    border-radius: 12px;
+    width: 65%; /* Use 80% of screen width */
+    height: 85%; /* Use 80% of screen height */
+    max-width: 70%; /* Maximum width to ensure it doesn't overflow */
+    max-height: 90%; /* Limit the height */
+    overflow: hidden; /* Hide overflow if needed */
+    position: relative;
+    box-shadow: 0 4px 4px rgba(0, 0, 0, 0.2);
+    display: flex;
+    flex-direction: column;
+    overflow-y: auto;
+    justify-content: flex-start; /* Push content to the top */
+}
+
+/* Image inside popup - make sure it fits without cropping or zooming */
+.popup-content img {
+    width: 50%; /* Make image fill the width */
+    height: auto; /* Maintain aspect ratio */
+    object-fit: contain;
+    margin: 40px auto 20px;
+}
+
+.popup {
+  text-align: justify
+} 
+
+.popup h2, .popup h3 {
+    font-size: 2rem !important;
+    text-align: center;
+    margin: 0.5rem 0;
+}
+
+.popup ul, .popup ol {
+  margin-left: 1rem;
+  margin-bottom: 0.75rem;
+  }
+
+/* Close button */
+.close-btn {
+    position: absolute;
+    top: 10px;
+    right: 10px;
+    background: none;
+    border: none;
+    font-size: 24px;
+    color: #000;
+    cursor: pointer;
+}
+
+
+.popup-content.popup-show {
+    opacity: 1;
+}
+
+
+.hidden {
+    display: none !important;
+}
+
+.back-btn {
+    background-color: #444444;
+    color: white;
+    border: none;
+    padding: 8px 12px;
+    margin-bottom: 12px;
+    cursor: pointer;
+    border-radius: 4px;
+    font-weight: bold;
+  }
+
+  .back-btn:hover {
+    background-color: #222;
+}
+
+.description-text {
+    margin-bottom: 24px;
+}
+  
+h4 {
+    font-size: 1.2rem;
+    font-weight: 600;
+    margin-top: 1.5rem;
+    margin-bottom: 0.5rem;
+  }
+  #metric-result {
+    margin-top: 0.5rem;
+    font-size: 1rem;
+  }
+  
+  #left-panel label,
+#left-panel h4 {
+  margin-top: 1rem;
+  display: block;
+  font-weight: bold;
+  font-size: 1.25rem;
+  font-weight: 600;
+  margin-top: 1.5rem;
+  margin-bottom: 0.75rem;
+  color: #333;
+}
+
+#left-panel h3 {
+    font-size: 1.5rem;
+    margin-bottom: 1rem;
+  }
+
+#threshold-value {
+  margin-bottom: 1rem;
+}
+
+.cost-table,
+.benefit-table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-top: 0.5rem;
+}
+
+.cost-table th,
+.cost-table td,
+.benefit-table th,
+.benefit-table td {
+  border: 1px solid #ccc;
+  padding: 0.5rem;
+  text-align: center;
+}
+
+.button-container {
+    display: flex;
+    justify-content: center;
+    margin: 20px 0;
+  }
+  
+  .toggle-button {
+    background-color: #ddd; /* Default grey background */
+    color: #333; /* Default text color */
+    padding: 10px 20px;
+    border: none;
+    border-radius: 20px;
+    cursor: pointer;
+    font-weight: bold;
+    margin: 0 10px;
+    transition: background-color 0.3s ease;
+  }
+  
+  .toggle-button.active {
+    background-color: #0f4d90; /* Blue background when selected */
+    color: white; /* White text when selected */
+  }
+  
+  .section {
+    display: none; /* Hide both sections initially */
+    margin-top: 20px;
+  }
+  
+  table {
+    width: 100%;
+    border-collapse: collapse;
+  }
+  
+  table th, table td {
+    padding: 8px;
+    text-align: left;
+    border: 1px solid #ccc;
+  }
+  
+/* Marker Cluster */
+.marker-cluster {
+    transition: all 0.3s ease;
+}
+
+/* Leaflet Marker Icons */
+.leaflet-marker-icon {
+    transition: transform 0.3s ease;
+}
+
+/* Ensure pointer events are allowed for clusters */
+.marker-cluster div {
+    pointer-events: auto !important; /* Allow pointer events on clusters */
+}
+
+/* Allow pointer events on interactive markers */
+.leaflet-interactive {
+    pointer-events: auto !important; /* Allow pointer events on markers */
+}
+
+.benefit-table td {
+    text-align: left;
+  }
+  
+  .benefit-table td[colspan="3"] {
+    font-style: italic;
+    text-align: center;
+    color: #7f8c8d; /* Adjust the color as needed */
+  }
+
+  .map-search-controls {
+    padding: 0.5rem;
+    background-color: #f0f0f0;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
+    width: 100%;
+    font-family: inherit; /* Inherit Rubik from body */
+  }
+  
+  .map-search-controls input[type="text"] {
+    padding: 0.5rem 1rem;
+    font-size: 1rem;
+    border: 1px solid #ccc;
+    border-radius: 4px 4px 0 0;
+    margin-bottom: 0;
+    box-sizing: border-box;
+    font-family: inherit; /* Ensure Rubik font */
+    background: #fff;
+  }
+  
+  #address-choices {
+    max-height: 220px;
+    overflow-y: auto;
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    background: #fff;
+    border: 1px solid #ccc;
+    border-top: none;
+    border-radius: 0 0 4px 4px;
+    box-shadow: 0 4px 16px rgba(0,0,0,0.08);
+    font-family: inherit; /* Ensure Rubik font */
+    font-size: 1rem;
+    z-index: 1000;
+    position: absolute;
+  }
+  
+  #address-choices li {
+    padding: 0.75rem 1rem;
+    cursor: pointer;
+    color: #222;
+    transition: background 0.15s;
+    font-family: inherit; /* Ensure Rubik font */
+    border-bottom: 1px solid #f0f0f0;
+    word-break: break-word;
+  }
+  
+  #address-choices li:last-child {
+    border-bottom: none;
+  }
+  
+  #address-choices li:hover, #address-choices li.active {
+    background: #e0e7ef;
+    color: #003366;
+  }
+
+  .property-popup {
+    font-size: 1.5em;    /* Makes all text 1.5x bigger */
+    line-height: 1.4;
+    max-width: 350px;    /* Optional: wider popup */
+  }
+  .leaflet-popup-content {
+    padding: 18px 20px;  /* Optional: more padding */
+  }
+
+  .feasibility-Yes { color: green; }
+.feasibility-No { color: orange; font-weight: bold; }
+table { min-width: 300px; }
+td:nth-child(2) { text-align: right; }
+
+#tract-name {
+    font-size: 1rem !important; 
+    font-weight: bold;
+    margin-bottom: 0.5em;
+  }
+
+#selected-properties {
+    font-size: 1rem !important; 
+    font-weight: bold;
+    margin-bottom: 0.5em;
+    color: #a30000 !important;
+  }
+
+  .subheader {
+    font-size: 1rem;      /* 24px */
+    font-weight: bold;
+    background: #333333;    /* Dark grey */
+    color: #fff !important;
+    border-radius: 12px;
+    padding: 0.5em 1em;
+    margin: 1em 0 0.5em 0;
+    display: inline-block;
+  }
+
+  .third-header {
+    font-size: 1rem;     /* 20px */
+    font-weight: bold;
+    text-decoration: underline;
+    text-decoration-thickness: 2px;
+    text-underline-offset: 3px;
+    margin-bottom: 0.5em;
+  }
+  
+  .logo-row {
+    display: flex;
+    justify-content: center;
+    width: 100%;
+    gap: 0.4rem !important;
+  }
+
+  .logo-row img {
+    width: 150px;
+    height: auto;
+    margin: 0;
+    padding: 0;
+    display: block;
+  }
+  
+  .cost-table th,
+.cost-table td,
+.benefit-table th,
+.benefit-table td {
+  text-align: center;
+  vertical-align: middle;
+}
+
+/* The switch - the box around the slider */
+.switch {
+  position: relative;
+  display: inline-block;
+  width: 44px;
+  height: 24px;
+  vertical-align: middle;
+  margin-right: 8px;
+}
+
+/* Hide default HTML checkbox */
+.switch input {
+  opacity: 0;
+  width: 0;
+  height: 0;
+}
+
+/* The slider */
+.slider {
+  position: absolute;
+  cursor: pointer;
+  top: 0; left: 0; right: 0; bottom: 0;
+  background-color: #ccc;
+  transition: .4s;
+  border-radius: 24px;
+}
+
+.slider:before {
+  position: absolute;
+  content: "";
+  height: 18px;
+  width: 18px;
+  left: 3px;
+  bottom: 3px;
+  background-color: white;
+  transition: .4s;
+  border-radius: 50%;
+}
+
+/* Checked state */
+.switch input:checked + .slider {
+  background-color: #2196F3;
+}
+.switch input:focus + .slider {
+  box-shadow: 0 0 1px #2196F3;
+}
+.switch input:checked + .slider:before {
+  transform: translateX(20px);
+}
+
+/* Optional: label styling */
+.switch-label {
+  font-size: 1em;
+  vertical-align: middle;
+  user-select: none;
+}
+
+.tooltip-popup {
+  position: absolute;
+  z-index: 9999999; /* Extremely high to ensure it's above everything */
+  background-color: #333;
+  color: #fff;
+  padding: 8px 12px;
+  border-radius: 6px;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+  font-size: 0.95em;
+  white-space: normal;
+  width: 220px;
+  text-align: left;
+}

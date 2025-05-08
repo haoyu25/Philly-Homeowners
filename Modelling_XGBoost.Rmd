@@ -274,38 +274,6 @@ caret::confusionMatrix(xgb_val_pred_geo$exemption.pred, xgb_val_pred_geo$exempti
 ```
 
 ```{r}
-library(data.table)
-fwrite(xgb_val_pred_geo, "xgb_val_pred_geo.csv")
-```
-
-```{r}
-library(plotROC)
-
-ggplot(xgb_val_pred_geo, aes(d = as.numeric(exemption), m = .pred)) +
-  geom_roc(n.cuts = 50, labels = FALSE, colour = "#BF4146") +
-  style_roc(theme = theme_grey) +
-  geom_abline(slope = 1, intercept = 0, size = 1, color = '#6683a9') +
-  labs(title = "ROC Curve") +
-  theme_minimal()
-```
-
-
-The density distribution of the predicted probabilities were then plotted. 
-```{r}
-
-ggplot(xgb_val_pred_geo, aes(x = .pred, fill = as.factor(exemption))) + 
-  geom_density() +
-  facet_grid(exemption ~ .) +
-  scale_fill_manual(values = palette2) +
-  labs(x = "Probabilities", y = "Density of probabilities",
-       title = "Distribution of predicted probabilities by observed outcome",
-             subtitle = "No gentrification = 0, Gentrification = 1") +
-  theme_minimal() +
-  theme(legend.position = "none") 
-
-```
-
-```{r}
 properties_model<-fread("properties_model.csv")
 xgb_full_pred <- xgb_best_wf %>% 
   fit(data = properties_model) %>%
@@ -319,10 +287,6 @@ xgb_full_pred <- xgb_full_pred %>%
   mutate(exemption.pred = ifelse(.pred >= 0.5, "1", "0"))
 ```
 
-```{r}
-fwrite(xgb_full_pred, "xgb_full_pred.csv")
-```
-
 # Spacial correlation
 
 ```{r}
@@ -334,17 +298,6 @@ properties <- fread("data/opa_properties_public.csv")
 properties_model <- properties_model %>%
   left_join(properties %>% dplyr::select(objectid, shape), by = "objectid")
 properties_model_sf <- st_as_sf(properties_model, wkt = "shape", crs = 2272)
-```
-
-
-```{r}
-xgb_full_pred <- fread("xgb_full_pred.csv")
-```
-
-```{r}
-xgb_full_pred <- xgb_full_pred %>%
-  left_join(properties %>% dplyr::select(objectid, shape), by = "objectid")
-properties_full_pred_sf <- st_as_sf(xgb_full_pred, wkt = "shape", crs = 2272)
 ```
 
 ## KNN
@@ -1045,6 +998,161 @@ xgb_val_fit_geo <- xgb_best_wf %>%
 
 ```
 
+## Model5
+
+```{r}
+properties_model_5<-fread("xgb_full_pred.csv")
+```
+
+```{r}
+variables5 <- c("same_address","rental_license",
+                "avg_market_value","sd_market_value","lag_exemption","balance_rate","senior_owner_rate","latest_document_type_DEED","median_home_value", "lon_4326","owner_occ_rate","has_recent_transfer","geographic_ward", "poverty_rate","lat_4326")
+
+```
+
+```{r}
+properties_model_5<- properties_model_5%>%
+  mutate(property_ID = seq(1:n()))%>%
+  dplyr::select(all_of(variables5), exemption, zip_code)%>%
+  st_drop_geometry()%>%
+  mutate(exemption=as.factor(exemption))
+
+```
+
+```{r}
+# 初步划分训练集和测试集
+data_split <- initial_split(properties_model_5, strata = "zip_code", prop = 0.75)
+properties_train <- training(data_split)
+properties_test  <- testing(data_split)
+```
+
+To prevent data leakage, spatial lag variables need to be calculated separately for the training and test datasets. If spatial information from the test set is used during the training phase, the model would "see" part of the test data's structure in advance, leading to overfitting and failing to reflect the true generalization ability of the model.
+
+Therefore, in this analysis, we first split the data and then independently calculate the spatial adjacency relationships and spatial lag values for each subset. This approach not only better reflects real-world scenarios (where the model only has access to the training data for prediction) but also improves the accuracy and reliability of model evaluation.
+
+```{r}
+library(spdep)
+library(dplyr)
+library(zoo)
+
+coords_train <- properties_train %>% 
+  dplyr::select(lon_4326, lat_4326) %>% 
+  data.matrix()
+
+knn_nb_train <- knn2nb(knearneigh(coords_train, k = 4))
+lw_train <- nb2listw(knn_nb_train, style = "W")
+
+properties_train$lag_exemption <- lag.listw(lw_train, properties_train$exemption)
+# 填补 NA
+mean_lag_train <- mean(properties_train$lag_exemption, na.rm = TRUE)
+properties_train$lag_exemption[is.na(properties_train$lag_exemption)] <- mean_lag_train
+
+coords_test <- properties_test %>% 
+  dplyr::select(lon_4326, lat_4326) %>% 
+  data.matrix()
+
+knn_nb_test <- knn2nb(knearneigh(coords_test, k = 4))
+lw_test <- nb2listw(knn_nb_test, style = "W")
+
+properties_test$lag_exemption <- lag.listw(lw_test, properties_test$exemption)
+# 填补 NA
+mean_lag_test <- mean(properties_test$lag_exemption, na.rm = TRUE)
+properties_test$lag_exemption[is.na(properties_test$lag_exemption)] <- mean_lag_test
+```
+
+```{r}
+properties_train <- properties_train %>%
+  mutate(exemption = as.factor(exemption))
+
+properties_test <- properties_test %>%
+  mutate(exemption = as.factor(exemption))
+```
+
+
+
+
+```{r}
+### Cross Validation
+## LOGOCV on Neighborhood with group_vfold_cv()
+cv_splits_geo <- group_vfold_cv(properties_train,  
+                                group = "geographic_ward")
+print(cv_splits_geo)
+```
+
+```{r}
+
+```
+
+
+```{r}
+# Feature Creation
+model_rec <- recipe(exemption ~ ., data = properties_train)  %>%
+  step_dummy(all_nominal_predictors()) %>%  
+  step_zv(all_predictors()) %>%
+  step_center(all_numeric_predictors()) %>%
+  step_scale(all_numeric_predictors())
+```
+
+```{r, include=FALSE}
+## Model specifications
+XGB_plan <- boost_tree() %>%
+  set_args(mtry  = tune()) %>%
+  set_args(min_n = tune()) %>%
+  #set_args(learn_rate = tune())%>%
+  #set_args(tree_depth = tune())%>%
+  set_args(trees = 200) %>% 
+  set_engine("xgboost") %>% 
+  set_mode("classification") #"classification"
+
+
+# Hyperparameter grid for glmnet (penalization)
+xgb_grid <- expand.grid(
+  mtry = c(3, 7,
+           10),  
+  min_n = c(1,5,
+            10)
+  #, learn_rate = c(0.01, 0.3), 
+  #tree_depth = c(3, 5, 7, 10)  
+)
+
+# create workflow
+xgb_wf <-
+  workflow() %>% 
+  add_recipe(model_rec) %>% 
+  add_model(XGB_plan)
+
+
+# fit model to workflow and calculate metrics
+control <- control_resamples(save_pred = TRUE, verbose = TRUE)
+metrics <- metric_set(roc_auc, accuracy, kap)
+xgb_tuned <- xgb_wf %>%
+  tune::tune_grid(.,
+                  resamples = cv_splits_geo,
+                  grid      = xgb_grid,
+                  control   = control,
+                  metrics   = metrics)
+```
+
+The grid search is conducted with the best model selected based on having the lowest Root Mean Squared Error.
+```{r}
+## metrics across grid
+collect_metrics(xgb_tuned)
+
+## 'Best' by some metric and margin
+show_best(xgb_tuned, metric = "accuracy", n = 15)
+
+xgb_best_params    <- select_best(xgb_tuned, metric = "accuracy"   )
+
+xgb_best_wf    <- finalize_workflow(xgb_wf, xgb_best_params)
+
+# last_fit() emulates the process where, after determining the best model, the final fit on the entire training set is needed and is then evaluated on the test set.
+
+xgb_val_fit_geo <- xgb_best_wf %>% 
+  last_fit(split     = data_split,
+           control   = control,
+           metrics   = metrics)
+```
+
 This chosen model is run on the test set for evaluation.
 ```{r}
 # Pull best hyperparam preds from out-of-fold predictions
@@ -1058,7 +1166,7 @@ xgb_val_pred_geo    <- collect_predictions(xgb_val_fit_geo)
 
 ```{r}
 collect_metrics(xgb_tuned) %>%
-  filter(.metric == "rmse") %>%
+  filter(.metric == "accuracy") %>%
   ggplot(aes(x = factor(mtry), y = mean, fill = factor(min_n))) +
   geom_bar(stat = "identity", position = "dodge") +
   labs(title = "RMSE Across Different Hyperparameter Combinations",
@@ -1086,147 +1194,172 @@ xgboost::xgb.plot.importance(xgb_imp, top_n = 30, main = "Top 20 Most Influentia
 
 ```
 
-```{r}
-properties_model_4<-fread("xgb_full_pred.csv")
 
-xgb_full_pred4 <- xgb_best_wf %>% 
-  fit(data = properties_model_4) %>%
-  predict(new_data = properties_model_4) %>%
-  bind_cols(properties_model_4)
+```{r}
+properties_predict<-fread("properties_model.csv")
+glimpse(properties_predict)
 ```
 
 ```{r}
-xgb_full_pred4 <- xgb_full_pred4 %>%
-  mutate(exemption.pred4 = ifelse(.pred >= 0.5, "1", "0"))%>%
-  rename(.pred4=.pred)
+## KNN
+properties_predict_sf <- st_as_sf(properties_predict, coords = c("x_2272", "y_2272"), crs = 2272)
+
+library(spdep)
+knn_nb <- knn2nb(knearneigh(properties_predict_sf, k = 4, use_kd_tree = FALSE))
+```
+
+## add spatial lag
+
+```{r}
+library(spdep)
+lw <- nb2listw(knn_nb, style = "W") 
+properties_predict_sf$lag_exemption <- lag.listw(lw, properties_predict_sf$exemption)
 ```
 
 ```{r}
+properties_predict0<-properties_predict_sf%>%
+  mutate(exemption=as.factor(exemption))%>%
+  st_drop_geometry
+```
 
-ggplot(xgb_full_pred4, aes(x = .pred4, fill = as.factor(exemption))) + 
+```{r}
+properties_predict0<- properties_predict0 %>%
+  mutate(latest_document_type_DEED = case_when(
+    latest_document_type == "DEED" ~ "DEED",
+    latest_document_type == "none" ~ "none",
+    TRUE ~ "others"
+  ))
+```
+
+
+```{r}
+xgb_full_pred <- xgb_best_wf %>% 
+  fit(data = properties_predict0) %>%
+  predict(new_data = properties_predict0,type="prob") %>%
+  bind_cols(properties_predict0)
+```
+
+```{r}
+xgb_full_pred <- xgb_full_pred %>%
+  mutate(exemption.pred = ifelse(.pred_1 >= 0.5, "1", "0"))%>%
+  mutate(.pred=.pred_1)
+```
+
+```{r}
+ggplot(xgb_full_pred, aes(x = .pred, fill = as.factor(exemption))) + 
   geom_density() +
   facet_grid(exemption ~ .) +
   scale_fill_manual(values = colors2) +
   labs(x = "Probabilities", y = "Density of probabilities",
        title = "Distribution of predicted probabilities by observed outcome",
-             subtitle = "No gentrification = 0, Gentrification = 1") +
+             subtitle = "No Exemption = 0, Exemption = 1") +
   theme_minimal() +
   theme(legend.position = "none") 
-
 ```
 
 ```{r}
-xgb_full_pred4$exemption.pred4 <- factor(as.character(xgb_full_pred4$exemption.pred4), levels = c("0", "1"))
-xgb_full_pred4$exemption       <- factor(as.character(xgb_full_pred4$exemption),       levels = c("0", "1"))
+xgb_full_pred$exemption.pred <- factor(as.character(xgb_full_pred$exemption.pred), levels = c("0", "1"))
+xgb_full_pred$exemption       <- factor(as.character(xgb_full_pred$exemption),       levels = c("0", "1"))
 
-caret::confusionMatrix(xgb_full_pred4$exemption.pred4, xgb_full_pred4$exemption, 
+caret::confusionMatrix(xgb_full_pred$exemption.pred, xgb_full_pred$exemption, 
                        positive = "1")
 ```
 
 ```{r}
-xgb_full_pred4 <- xgb_full_pred4 %>%
-  mutate(exemption.pred0.5 = ifelse(.pred4 >= 0.5, "1", "0"),
-         exemption.pred0.6 = ifelse(.pred4 >= 0.5, "1", "0"),
-         exemption.pred0.7 = ifelse(.pred4 >= 0.5, "1", "0"),
-         exemption.pred0.8 = ifelse(.pred4 >= 0.5, "1", "0"),
-         exemption.pred0.9 = ifelse(.pred4 >= 0.5, "1", "0"))
+xgb_full_pred <- xgb_full_pred %>%
+  mutate(exemption.pred0.5 = ifelse(.pred >= 0.5, "1", "0"),
+         exemption.pred0.6 = ifelse(.pred >= 0.6, "1", "0"),
+         exemption.pred0.7 = ifelse(.pred >= 0.7, "1", "0"),
+         exemption.pred0.8 = ifelse(.pred >= 0.8, "1", "0"),
+         exemption.pred0.9 = ifelse(.pred >= 0.9, "1", "0"))
 ```
 
 
 ```{r}
-fwrite(xgb_full_pred4, "xgb_full_pred.csv")
-```
-
-
-## Analysis residuals
-
-```{r}
-xgb_full_pred_sf <- xgb_full_pred4 %>%
-  mutate(residual1 = as.numeric(exemption) - .pred1,
-         residual2 = as.numeric(exemption) - .pred2,
-         residual3 = as.numeric(exemption) - .pred3,
-         residual4 = as.numeric(exemption) - .pred4)
-```
-
-
-```{r}
-library(yardstick)
-
-# 转为 long format 更好对比
-residuals_long <- xgb_full_pred_sf %>%
-  st_drop_geometry()%>%
-  dplyr::select(exemption, residual1, residual2, residual3, residual4) %>%
-  pivot_longer(cols = starts_with("residual"),
-               names_to = "model",
-               values_to = "residual")
-
-# 计算 MAE、RMSE
-residual_metrics <- residuals_long %>%
-  group_by(model) %>%
-  summarise(
-    MAE = mean(abs(residual), na.rm = TRUE),
-    RMSE = sqrt(mean(residual^2, na.rm = TRUE))
-  )
-
-print(residual_metrics) 
+fwrite(xgb_full_pred, "xgb_full_pred_05056.csv")
 ```
 
 ```{r}
-ggplot(residuals_long, aes(x = residual, fill = model)) +
-  geom_density(alpha = 0.5) +
-  labs(title = "Residual Distribution Comparison")
+fp_data <- xgb_full_pred %>%
+  filter(exemption.pred == "1", exemption == "0")
 ```
 
 ```{r}
-sf_data <- xgb_full_pred_sf %>%
+fwrite(fp_data, "fp_data_0506.csv")
+```
+
+```{r}
+tp <- sum(xgb_full_pred$exemption.pred == "1" & xgb_full_pred$exemption == "1")
+fp <- sum(xgb_full_pred$exemption.pred == "1" & xgb_full_pred$exemption == "0")
+
+precision <- tp / (tp + fp)
+precision
+```
+
+
+```{r}
+library(dplyr)
+library(tidyr)
+
+resid_summary <- properties_result %>%
+  summarise(across(starts_with("residual"), list(
+    rmse = ~ sqrt(mean(.^2, na.rm = TRUE)),
+    mae = ~ mean(abs(.), na.rm = TRUE),
+    meanresid = ~ mean(., na.rm = TRUE)
+  ))) %>%
+  pivot_longer(cols = everything(), 
+               names_to = "metric", 
+               values_to = "value") %>%
+  extract(metric, into = c("residual", "stat"), 
+          regex = "(residual\\d+)_(.*)") %>%
+  pivot_wider(names_from = stat, values_from = value) %>%
+  dplyr::select(residual, mae, meanresid, rmse)
+
+print(resid_summary)
+```
+
+```{r}
+sf_data <- properties_result %>%
   st_as_sf(coords = c("lon_4326", "lat_4326"), crs = 4326)
-
-# View the sf object
-print(sf_data)
-```
-
-```{r}
-
-max_val <- max(abs(c(xgb_full_pred_sf$residual1,
-                     xgb_full_pred_sf$residual2,
-                     xgb_full_pred_sf$residual3,
-                     xgb_full_pred_sf$residual4)), na.rm = TRUE)
-
-max_val
-range(xgb_full_pred_sf$residual1, na.rm = TRUE)
 ```
 
 
 ```{r}
-tm_shape(sf_data) +
-  tm_fill("residual2", palette = colors6, 
-          style = "cont",  # 确保数据是连续型的
-          breaks = c(-max_val, seq(-max_val, max_val, length.out = 6), max_val),
-          title = "Residual") +
-  tm_borders() +
-  tm_layout(main.title = "Residuals - Model 2")
-```
+library(spdep)
 
+coords <- cbind(properties_result$x_2272, properties_result$y_2272)
+neighbors <- knn2nb(knearneigh(coords, k = 4))
+weights <- nb2listw(neighbors)
 
+moran1 <- moran.test(properties_result$residual1, listw = weights)
+moran2 <- moran.test(properties_result$residual2, listw = weights)
+moran3 <- moran.test(properties_result$residual3, listw = weights)
+moran4 <- moran.test(properties_result$residual4, listw = weights)
 
-```{r}
-# Residual 2
-ggplot(xgb_full_pred_sf) +
-  geom_sf(aes(fill = balance_rate), color = NA) +
-  scale_fill_gradientn(colors = colors6,
-                       name = "Residual") +
-  labs(title = "Residuals - Model 2") +
-  theme_minimal()
 ```
 
 ```{r}
-# Residual 3
-ggplot(sf_data) +
-  geom_sf(aes(fill = residual3), color = NA) +
-  scale_fill_gradientn(colors = colors6,
-                       limits = c(-max_val, max_val),
-                       name = "Residual") +
-  labs(title = "Residuals - Model 3") +
-  theme_minimal()
+library(broom)
+library(dplyr)
+library(purrr)  # 用于 map 操作
+
+# 创建一个命名列表
+moran_list <- list(
+  residual1 = tidy(moran1),
+  residual2 = tidy(moran2),
+  residual3 = tidy(moran3),
+  residual4 = tidy(moran4)
+)
+
+# 合并为 data.frame 并选择需要的列
+moran_summary <- moran_list %>%
+  bind_rows(.id = "residual") %>%
+  dplyr::select(residual, moran_i = estimate1, z_stat = statistic, p_value = p.value)
+
+print(moran_summary)
+
 ```
+
+Among the four models, only residual1 shows significant positive spatial autocorrelation (Moran’s I = 0.0215, p < 0.001), indicating spatial clustering of residuals and suggesting that the model fails to fully account for spatially structured variables. In contrast, residual2 to residual4 all exhibit slight negative Moran’s I values with extremely high p-values (p = 1), indicating no significant spatial autocorrelation and thus better handling of spatial dependencies.
+
 
