@@ -611,7 +611,7 @@ document_exemption_model <- glm(exemption ~ document_type, data = residential_tr
 ```
 
 ```{r transfer_types, echo=FALSE, message=FALSE, warning=FALSE, fig.show='hold'}
-transfers_new <- fread("residential_transfers_cleaned.csv") %>% 
+transfers_new <- fread("Data/residential_transfers_cleaned.csv") %>% 
   rename(has_recent_transfer = has_recent_transfer.x)
 
 residential_properties <- residential_properties %>%
