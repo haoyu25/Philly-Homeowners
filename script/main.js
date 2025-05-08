@@ -4,11 +4,6 @@ import { initializeAddressSearch } from './address-search.js';
 
 document.addEventListener('DOMContentLoaded', () => {
   initializeAddressSearch();
-  // Other initializations...
-});
-
-
-document.addEventListener('DOMContentLoaded', () => {
   initializePropertyMap();
   showIntroPopup();
 });
@@ -41,11 +36,11 @@ function showIntroPopup() {
   description.innerHTML = `
   <h3>Welcome to the Philadelphia <br> Homestead Exemption Outreach Explorer!</h3> 
 
-  <p style="margin-top: 2rem; margin-bottom: 2rem; font-size: 1.25rem;">This dashboard serves as an exploratory tool and  allows a user to explore properties currently not enrolled in a Homestead Exemption.  
+  <p style="margin-top: 2rem; margin-bottom: 2rem; font-size: 1rem;">This dashboard serves as an exploratory tool and  allows a user to explore properties currently not enrolled in a Homestead Exemption.  
   To understand the Homestead Exemption program</strong> in Philadelphia. 
   </p>
 
-  <p style="margin-top: 2rem; margin-bottom: 2rem; font-size: 1.25rem;">
+  <p style="margin-top: 2rem; margin-bottom: 2rem; font-size: 1rem;">
   To increase awareness about the potential unrealized property tax savings of this program, the City of Philadelphia is considering an outreach campaign to these homeowners.
   A machine learning XGBoost model was used to predict the probability that a property may be eligible for the Homestead Exemption program. 
   Use the slider to try different thresholds, explore where these properties are clustered, as well as their neighborhood profiles.
@@ -72,7 +67,7 @@ function showIntroPopup() {
     </div>
   </div>
 
-  <p style="margin-top: 2rem; margin-bottom: 2rem; font-size: 1.25rem;">
+  <p style="margin-top: 2rem; margin-bottom: 2rem; font-size: 1rem;">
   Please refer to our RMarkdown for the detailed report of our project.
   </p>
 
@@ -87,9 +82,9 @@ function showIntroPopup() {
   const footer = document.createElement('p');
   footer.textContent = "Created by Haoyu Zhu, Rachel Midgett, Wenjun Zhu, and Claudia Low for University of Pennsylvania's MUSA 801";
   footer.style.marginTop = '2rem';
-  footer.style.marginBotom = "10rem";
+  footer.style.marginBottom = "10rem";
   footer.style.textAlign = 'center';
-  footer.style.fontsize = '1.2';
+  footer.style.fontSize = '1';
   footer.style.fontWeight = 'bold';
 
   content.append(closeBtn, title, description, footer);
