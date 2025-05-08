@@ -267,7 +267,7 @@ h5 {
 /* Popup content - larger size */
 .popup-content {
     background-color: white;
-    padding: 0px 40px 40px;
+    padding: 0px 18px 18px;
     border-radius: 12px;
     width: 65%; /* Use 80% of screen width */
     height: 85%; /* Use 80% of screen height */
@@ -297,7 +297,7 @@ h5 {
 } 
 
 .popup h2, .popup h3 {
-    font-size: 2.5rem !important;
+    font-size: 2rem !important;
     margin-bottom: 1rem;
     text-align: center;
 }
