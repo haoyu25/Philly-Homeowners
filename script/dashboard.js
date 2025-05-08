@@ -22,7 +22,7 @@ const CAMPAIGN_PARAMS = {
 
 // Load in Exemption Data
 function loadWithoutExemptionData() {
-  fetch('dashboarddata/property_without_exemption_final_reduced.geojson')
+  fetch('dashboarddata/property_without_exemption_0505_final.json')
     .then(response => response.json())
     .then(data => {
       withoutExemptionData = data;
@@ -206,13 +206,13 @@ exportBtn.addEventListener('click', () => {
   const currentThreshold = parseFloat(document.getElementById('threshold-slider').value);
   // Find all properties in the tract that meet the threshold
   const propertiesInTract = withoutExemptionData.features.filter(feature => {
-    return feature.properties.GEOID === lastClickedGEOID && feature.properties.X_pred1 >= currentThreshold;
+    return feature.properties.GEOID === lastClickedGEOID && feature.properties.X_pred_1 >= currentThreshold;
   });
 
   // Build CSV rows, filtering out rows with empty addresses
   let csvRows = [["Address", "Owner Name"]];
   propertiesInTract.forEach(feature => {
-    const address = feature.properties.location || "";
+    const address = feature.properties.locatin || "";
     const ownerName = feature.properties.owner_1 || "";
     if (address.trim() !== "") {
       csvRows.push([address, ownerName]);
@@ -304,15 +304,15 @@ export function updateTractCharacteristics(tractData, properties) {
 
   tbody.innerHTML = `
     <tr><td>Owner Occupancy Rate</td><td>${tractData.ownr_c_.toFixed(2)}%</td></tr>
-    <tr><td>Limited English Rate</td><td>${tractData.lmtd_n1.toFixed(2)}%</td></tr>
-    <tr><td>Dominant Non-English Language</td><td>${tractData.dmnnt_l} <br> (${tractData.dmnnt_p}% of residents)</td></tr>
+    <tr><td>Limited English Rate</td><td>${tractData.lmtd_n_.toFixed(2)}%</td></tr>
+    <tr><td>Dominant Non-English Language</td><td>${tractData.dominant_language} <br> (${tractData.dominant_pct}% of residents)</td></tr>
     <tr><td>Median Income</td><td>$${tractData.mdn_ncm.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}</td></tr>
     <tr><td>Population Density</td><td>${tractData.pp_dnst.toFixed(2)} people/sq mi</td></tr>
   `;
 
   // Update the Census Tract Name in the dashboard
   const tractNameElement = document.getElementById('tract-name');
-  tractNameElement.textContent = `Census Tract: ${tractData.trct_nm}`;
+  tractNameElement.textContent = `Census Tract: ${tractData.cnss_tr}`;
   lastClickedGEOID = tractData.GEOID;
 
   // Update the number of selected properties based on threshold
@@ -335,13 +335,13 @@ export function updateTractCharacteristics(tractData, properties) {
 }
 
 function countPropertiesInTract(tractGEOID, threshold) {
-  // Find properties in the same tract with X_pred1 >= threshold
+  // Find properties in the same tract with X_pred_1 >= threshold
   const propertiesInTract = withoutExemptionData.features.filter(feature => {
-    return feature.properties.GEOID === tractGEOID && feature.properties.X_pred1 >= threshold;
+    return feature.properties.GEOID === tractGEOID && feature.properties.X_pred_1 >= threshold;
   });
 
   // Store the addresses of those properties for exporting
-  selectedAddresses = propertiesInTract.map(feature => feature.properties.location);
+  selectedAddresses = propertiesInTract.map(feature => feature.properties.locatin);
 
   // Return the count like before
   return propertiesInTract.length;

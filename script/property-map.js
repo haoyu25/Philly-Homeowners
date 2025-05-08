@@ -33,7 +33,7 @@ export function initializePropertyMap() {
 
   baseTileLayer.addTo(propertyMap);
 
-  const propertyLayer = L.vectorGrid.protobuf('tiles/properties/{z}/{x}/{y}.pbf', {
+  const propertyLayer = L.vectorGrid.protobuf('https://storage.googleapis.com/musa5090s25-team2-public/tiles/properties/{z}/{x}/{y}.pbf', {
     vectorTileLayerStyles: {
       'property_layer': (properties, zoom) => ({
         weight: 0.5,
@@ -111,7 +111,7 @@ export function initializePropertyMap() {
   });
 
   // Add without_exemption data
-  fetch('dashboarddata/property_without_exemption_final_reduced.geojson')
+  fetch('dashboarddata/property_without_exemption_0505_final.json')
     .then(response => response.json())
     .then(data => {
       withoutExemptionData = data;
@@ -256,7 +256,7 @@ export function updateWithoutExemptionLayer(threshold) {
   if (!withoutExemptionData) return;
 
   const filteredFeatures = withoutExemptionData.features.filter(feature => {
-    return feature.properties.X_pred1 >= threshold;
+    return feature.properties.X_pred_1 >= threshold;
   });
 
   console.log(`Processing ${filteredFeatures.length} features with threshold ${threshold}`);
@@ -302,12 +302,12 @@ export function updateWithoutExemptionLayer(threshold) {
 
   filteredFeatures.forEach(feature => {
     const [lng, lat] = feature.geometry.coordinates;
-    const { sm_ddrs, rntl_lc, cmmrcl_, avg_mr_, X_pred1, location } = feature.properties;
+    const { sm_ddrs, rntl_lc, cmmrcl_, avg_mr_, X_pred_1, locatin } = feature.properties;
 
     const popupContent = `
     <div class="property-popup">
-      <b>Predicted Probability:</b> ${X_pred1.toFixed(2)}<br>
-      <b>Address:</b> ${toTitleCase(location)}<br>
+      <b>Predicted Probability:</b> ${X_pred_1.toFixed(2)}<br>
+      <b>Address:</b> ${toTitleCase(locatin)}<br>
       <b>Same Mailing Address:</b> ${sm_ddrs === 1 ? "Yes" : "No"}<br>
       <b>Rental License:</b> ${rntl_lc === 1 ? "Yes" : "No"}<br>
       <b>Commercial License:</b> ${cmmrcl_ === 1 ? "Yes" : "No"}<br>
