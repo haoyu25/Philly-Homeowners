@@ -106,6 +106,7 @@ This report provides a detailed workflow of the project on Homestead Tax Exempti
 These relevant properties who are identified as most likely eligible for the Homestead Exemption but not taking up the program,  are also thought to be more likely to be subject to “tangled titles,” or family-rental arrangements that require an affidavit to waive need for a rental license.
 
 ## Background on Property Tax in Philadelphia
+
 Property tax in Philadelphia is **1.3998% of the property value**, as assessed by the Office of Property Assessment,for the 2025 tax year. This is made up of 0.6159% (City of Philadelphia) and 0.7839% (School District)
 The taxes are due March 31st yearly.
 
