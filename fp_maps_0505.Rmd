@@ -1,7 +1,7 @@
 ---
 title: "FP-spatial"
 author: "Whitney Zhu"
-date: "2025-03-31"
+date: "2025-05-08"
 output: html_document
 ---
 
@@ -38,7 +38,8 @@ ggplot() +
   ) +
   theme_minimal()
 ```
-# Kernel Density Estimation
+# Spatial Density of Missed Exemptions
+A density map reveals clustering patterns of missed exemptions across the city. Southwest and North Philadelphia emerge as notable hotspots, suggesting spatial barriers or inequities in exemption uptake. These areas may benefit from additional support or communication efforts.
 ```{r}
 ggplot() +
   geom_sf(data = philly_shapefile, fill = "white", color = "gray80") +
@@ -86,16 +87,6 @@ ggplot(fp_proj) +
 ```
 
 
-
-01 KDE heatmap hotspots = Regions where the estimated probability density function is high.
-It is smoother and continuous, showing density trends rather than clear cluster boundaries.
-Even moderately dense but widespread areas can appear as "hot" in the visualization.
-
-02 DBSCAN hotspots = Regions where at least minPts points are located within a distance of eps from each other.
-It is stricter and tends to ignore areas that are high-density but more dispersed.
-Only dense clusters of closely packed points are identified.
-
-
 # spatial join to Tracts
 
 ```{r}
@@ -129,6 +120,12 @@ head(tract_fp_stats)
 ```{r}
 philly_tracts_joined <- left_join(philly_shapefile, tract_fp_stats, by = "TRACTCE20")
 ```
+
+
+
+# Missed Exemption Opportunities by Census Tracts
+This map shows the number of false positive predictions—cases where a property was predicted to receive an exemption but does not—in each census tract. Higher counts (in red) indicate areas with greater concentrations of missed exemption opportunities. This spatial breakdown helps target outreach efforts by tract.
+
 
 ```{r}
 library(dplyr)
@@ -202,9 +199,9 @@ local_moran <- localmoran(
   zero.policy = TRUE
 )
 
-philly_moran$Ii <- local_moran[, 1]      # Local Moran's I
-philly_moran$Z_Ii <- local_moran[, 4]    # 标准化 I
-philly_moran$p_value <- local_moran[, 5] # p-value
+philly_moran$Ii <- local_moran[, 1]      
+philly_moran$Z_Ii <- local_moran[, 4]    
+philly_moran$p_value <- local_moran[, 5] 
 
 ```
 
@@ -232,14 +229,10 @@ philly_moran %>%
 ```
 
 ```{r}
-# 计算 High-High tracts 中总的 false positive 数量
 philly_moran %>%
   filter(cluster_type == "High-High") %>%
   summarise(total_fp_in_highhigh = sum(total_fp, na.rm = TRUE))
-
 ```
-
-
 
 ```{r}
 library(ggplot2)
@@ -263,6 +256,12 @@ ggplot(philly_moran) +
   theme_minimal()
 
 ```
+# Outreach Cost Estimation for High-Potential Clusters
+We identified 12,302 properties within statistically significant high-high clusters of missed exemptions using LISA spatial analysis.
+This map highlights those target areas (in red) where need is spatially concentrated.
+
+Based on cost estimates from the City’s Opioid Response Unit door-knocking campaign and USPS Direct Mail pricing,
+the projected outreach cost for these homes is approximately $84,093.
 
 ```{r}
 library(ggplot2)
@@ -295,11 +294,6 @@ st_write(highhigh_union, "highhigh_union_0505.geojson", driver = "GeoJSON")
 ```
 
 
-
-
-
-
-
 ```{r}
 library(sf)
 library(dplyr)
@@ -325,13 +319,4 @@ print(highhigh_summary)
 ```
 
 
-
-
-```{r}
-ggplot(philly_moran) +
-  geom_sf(aes(fill = p_value), color = "white") +
-  scale_fill_viridis_c(option = "C", direction = -1) +
-  labs(title = "P-Values from Local Moran's I", fill = "P-Value") +
-  theme_minimal()
-```
 

@@ -11,7 +11,7 @@ output:
 ---
 
 ```{r setup, include=FALSE}
-knitr::opts_chunk$set(echo = FALSE, message = FALSE, warning = FALSE, results='hide', cache = TRUE)
+knitr::opts_chunk$set(echo = FALSE, message = FALSE, warning = FALSE, results='hide', cache = FALSE)
 
 library(tidycensus)
 library(tidyverse)
@@ -96,7 +96,7 @@ options(scipen = 999)
 
 # Introduction
 
-This report provides a detailed workflow of the project on Homestead Tax Exemption entitlement assisstance outreach, for the City of Philadelphia Office of Philly Stat 360 and Office of Information Technology. The aim of the project is design an algorithm-driven outreach campaign that can cost effectively identify homeowners who are likely to be eligible for the [Homestead Tax Exemption](https://www.phila.gov/services/payments-assistance-taxes/taxes/property-and-real-estate-taxes/get-real-estate-tax-relief/get-the-homestead-exemption/) but are not participating in the program. The project aims to allow our clients to understand where these properties are located, potential outreach strategies, and the associated costs and benefits.
+This report provides a detailed workflow of the project on Homestead Tax Exemption entitlement assistance outreach, for the City of Philadelphia Office of Philly Stat 360 and Office of Information Technology. The aim of the project is design an algorithm-driven outreach campaign that can cost effectively identify homeowners who are likely to be eligible for the [Homestead Tax Exemption](https://www.phila.gov/services/payments-assistance-taxes/taxes/property-and-real-estate-taxes/get-real-estate-tax-relief/get-the-homestead-exemption/) but are not participating in the program. The project aims to allow our clients to understand where these properties are located, potential outreach strategies, and the associated costs and benefits.
 
 These relevant properties who are identified as most likely eligible for the Homestead Exemption but not taking up the program,  are also thought to be more likely to be subject to “tangled titles,” or family-rental arrangements that require an affidavit to waive need for a rental license.
 
@@ -132,11 +132,13 @@ Currently, no focused or strategic efforts are being carried out by to identify 
 
 ## Dependent Variable - Homestead Exemption
 
-The primary dataset used is the Property and Assessment History publicly available for download on OpenDataPhilly. 
-Six relevant datasets are merged with this primary dataset with common identifying keys such as the parcel number in order to include useful predictor variabels in the model predicting for homeowners most likely eligible but not currently enrolled in the Homestead Exemption.
+The primary dataset used is the Property and Assessment History publicly available for download on [OpenDataPhilly](https://opendataphilly.org/). Six relevant datasets are merged with this primary dataset with common identifying keys such as the parcel number in order to include useful predictor variables in the model predicting for homeowners most likely eligible but not currently enrolled in the Homestead Exemption.
 
 Every observation in the Property and Assessment History dataset is one property in Philadelphia, with a total of 584,049 properties and 79 features. As this dataset is updated daily, the one used for this project is updated as of 31 January 2025. 
+
 There is a column 'homestead_exemption' within this dataset which indicates the taxable portion amount removed from the property assessment of the house. It should be noted that there are 14 properties that had a homestead exemption larger then $100,000, the maximum possible amount, which is suspected to be a clerical error and has been flagged to the PhillyStat360 team. The dependent variable for the model is derived from this feature by creating a binary variable on whether or not the property is currently enrolled in the homestead exemption program, indicated by a non-zero value. There are 246,853 properties with a homestead exemption.
+
+![Properties Brief Overview](rmd_png/brief_overview.png)
 
 ```{r read data, echo=FALSE, message=FALSE, warning=FALSE, fig.show='hold'}
 properties <- fread("data/opa_properties_public.csv")
@@ -232,11 +234,15 @@ census_tracts_enriched <- census_tracts_enriched %>%
   )
 ```
 
-### Homestead Rate by Census Tract
+### Homestead Rate by Census Tract {.tabset}
 
-One major issue faces is the large number of NA values. Even for those features with a low number of NA values indicated in this table, further investigation reveals that there are many empty cells. 
+First, we take a look at the distribution of homestead exemption rates by census tract.
 
-```{r histogram homestead distribution, echo=FALSE, message=FALSE, warning=FALSE, fig.show='hold'}
+#### Quantitative Distribution {.unnumbered}
+ 
+The distribution of homestead exemption rates across census tracts is approximately normal, with most tracts clustered between 30% and 50%. A notable decline occurs below the 30% threshold, and very few tracts fall below 20%. Tracts with exemption rates under 30% may indicate low participation. If these areas are primarily residential, such figures may warrant targeted outreach or further investigation into potential barriers to enrollment.
+
+```{r Quantitative Distribution, echo=FALSE, message=FALSE, warning=FALSE, fig.show='hold'}
 census_tracts_filtered <- census_tracts_enriched %>%
   filter(pop_density > 0 & total_properties >= 30)  # 30 properties minimum
 
@@ -256,18 +262,13 @@ ggplot(census_tracts_enriched %>% filter(pop_density > 0),
   ) +
   base_theme +
   scale_x_continuous(breaks = seq(0, 100, by = 10))
-
 ```
-The distribution shows a roughly normal shape with most tracts clustered between 30-50%
-There's a notable drop-off below 30% in the number of tracts
-The histogram shows relatively few tracts with rates below 20%
 
-Therefore, census tracts with homestead exemption rates below 30% could be considered to have low enrollment and might warrant targeted outreach or investigation into barriers to participation, assuming they are primarily residential areas and not institutional/special use tracts.
+#### Spatial Distribution {.unnumbered}
 
-There's a notable drop-off below 30% in the number of tracts. Therefore, census tracts with homestead exemption rates below 30% could be considered to have low enrollment and might warrant targeted outreach or investigation into barriers to participation, assuming they are primarily residential areas.
+Spatially, homestead exemption rates tend to be lower in the central areas of the city compared to the outskirts. This pattern likely reflects a higher proportion of rental or non-residential properties in the urban core, which are less eligible for exemptions. In contrast, peripheral neighborhoods—with more owner-occupied housing—generally exhibit higher rates of participation.
 
-
-```{r map homestead distribution, echo=FALSE, message=FALSE, warning=FALSE, fig.show='hold'}
+```{r Spatial Distribution, echo=FALSE, message=FALSE, warning=FALSE, fig.show='hold'}
 custom_colors <- c("<20%" = "#e42524",     
                    "20-30%" = "#ea7357",    
                    "30-40%" = "#f0b48b",   
@@ -318,11 +319,17 @@ properties_full_pred_sf$lag_exemption <- lag.listw(lw, properties_full_pred_sf$e
 
 ### Current Propertiy Characteristics {.tabset}
 
-We analyze the characteristics of the properties themselves including zoning code, ownership status (e.g., corporation-owned), and whether the mailing address matches the property address.
+We examine several property-level characteristics that may influence eligibility or participation in the Homestead Exemption program, including ownership status (e.g., corporate ownership) and whether the owner's mailing address matches the property address.
+
+One of the key eligibility criteria for the Homestead Exemption is that the property must serve as the homeowner’s primary residence. To approximate this, we explore the match between the mailing street address (`mailing_street`) and the property location address (`location`) and use it as an predictor. A matching address may suggests that the owner resides at the property.
+
+Another important factor is owner participation in other tax relief programs. Properties already receiving benefits from programs such as LOOP (Longtime Owner Occupants Program) or the Residential Tax Abatement are generally ineligible for the Homestead Exemption. To capture this, we use the exempt-building variable. If this value is non-zero and the property is not enrolled in the Homestead Exemption, it may indicate participation in one of these alternative programs.
+
+The Homestead Exemption also requires that a property is not used exclusively for business or rental purposes—partial use is allowed. We operationalize this rule with two binary variables. We explore its rental Potential by defining the presence of an active rental license and business potential by defining the presence of a business license (excluding rental licenses).
 
 #### Same Address {.unnumbered}
 
-The first predictor variable is based off the key eligibility criteria of the Homestead Exemption program -- whether a homeowner resides long-term in the property itself. The closest proxy of this is whether the mailing street ('mailing_street') address is the same as the property street address ('location'), as the mailing address of the owner is often where the owner lives long-term.
+Properties enrolled in the Homestead Exemption are more likely to have the owner's mailing address match the property address, indicating primary residence. 
 
 ```{r same_address, echo=FALSE, message=FALSE, warning=FALSE, fig.show='hold'}
 residential_properties <- residential_properties %>% 
@@ -342,7 +349,7 @@ ggplot(residential_properties, aes(x = same_address, fill = as.factor(exemption)
 
 #### Owner Count Address {.unnumbered}
 
-This predictor variable is based off the ineligibility for the homestead exemption if the homeowner is already enrolled in particular exisitng tax programs such as the LOOP and the residential tax abatement. This is determined if there is an existing tax relief that exempts a portion of the building from tax. If there is a non-zero value for 'exempt-building' and the property is not currently enrolled in the homestead exemption, it is potentially already enrolled in LOOP or in residential tax abatement.
+Enrolled properties are more likely to be owned by individuals or entities with fewer than 10 properties, suggesting smaller-scale ownership.
 
 ```{r owner_count, echo=FALSE, message=FALSE, warning=FALSE, fig.show='hold'}
 ## Count the number of properties by owner_1
@@ -370,31 +377,9 @@ ggplot(residential_properties, aes(x = as.factor(owner_count), fill = as.factor(
 
 ```
 
-#### Depth of the Property {.unnumbered}
-
-Depth of the property as well as the total property area were also predictors, although not as useful as the eligibility criteria. 
-```{r depth, echo=FALSE, message=FALSE, warning=FALSE, fig.show='hold'}
-# 1-3: Depth
-residential_properties <- residential_properties %>% 
-  mutate(is_deep = ifelse(depth > 150, 1, 0),
-         large_area = ifelse(total_area > 150000, 1, 0))
-
-ggplot(residential_properties%>%filter(!is.na(is_deep)), 
-       aes(x = as.factor(is_deep), fill = as.factor(exemption))) +
-  geom_bar(position = "dodge") +
-  scale_fill_manual(values = colors2, labels = c("No Exemption", "With Exemption")) +
-  labs(
-    title = "Property Depth by Homestead Exemption",
-    x = "Depth > 300",
-    y = "Count",
-    fill = "Homestead Exemption"
-  ) +
-  base_theme
-```
-
 #### Rental Licenses {.unnumbered}
 
-These two predictor variables are based on the key eligibility criteria of the Homestead Exemption program, that a property must not be used exclusively for business or rental purposes (partial use is allowed). We divided this criterion into two sections: one assessing the potential for exclusive business use and the other for exclusive rental use. A property is considered to have rental potential if it holds an active rental license, and business potential if it has an active business license (excluding rental licenses). Both variables are binary (has/does not have).
+Properties receiving the exemption tend not to hold active rental licenses.
 
 ```{r rental license, echo=FALSE, message=FALSE, warning=FALSE, fig.show='hold'}
 business_license<-st_read("Data/business_licenses.geojson")
@@ -432,6 +417,8 @@ ggplot(properties_rental,
 ```
 
 #### Commertial Licenses {.unnumbered}
+
+Properties receiving the exemption tend not to have active commercial (non-rental) business licenses.
 
 ```{r Business License Exclude Rental, echo=FALSE, message=FALSE, warning=FALSE, fig.show='hold'}
 commercial_license<-business_license%>%
@@ -484,13 +471,19 @@ ggplot(properties_commercial,
 
 ```
 
-### Historical Propertiy Characteristics  {.tabset}
+### Historical Property Characteristics {.tabset}
+
+We also examine the historical characteristics of properties, focusing on transfer history and assessment trends over time.
+
+Using residential property assessment data from 2015 to 2025, we compare properties with and without Homestead Exemptions in terms of their average market value and the variability (standard deviation) of that value. This allows us to assess whether exempt properties tend to be more stable or differ systematically in value.
+
+We also analyze year-over-year changes in taxable building values to identify typical patterns of property tax growth, as well as deviations potentially linked to major economic events.
+
+Additionally, we explore property transfer records to better understand the ownership dynamics of exempt properties. We compare exemption rates across different deed types to investigate whether certain forms of property transfer are more commonly associated with exemption enrollment.
 
 #### Market Value {.unnumbered} 
 
-We used residential property assessment data from 2015 to 2025 to examine the historical market value characteristics of properties with and without exemptions. We calculated both the average market value and the standard deviation of market value for exempt versus non-exempt properties.
-
-The results, shown in the following chart, indicate that properties without exemptions have significantly higher average market values ($304,731 compared to $182,169) and higher variability ($78,513 versus $42,479). This suggests that non-exempt properties tend to have higher market values and experience greater market fluctuations over time. In contrast, exempt properties have lower but much more stable market values, meaning homeowners without exemptions are less vulnerable to sudden market shocks.
+Properties without exemptions have significantly higher average market values ($304,731 compared to $182,169) and higher variability ($78,513 versus $42,479). This suggests that non-exempt properties tend to have higher market values and experience greater market fluctuations over time. In contrast, exempt properties have lower but much more stable market values, meaning homeowners without exemptions are less vulnerable to sudden market shocks.
 
 ```{r Market_Value, echo=FALSE, message=FALSE, warning=FALSE, fig.show='hold'}
 # Load and inspect the assessments dataset
@@ -563,8 +556,6 @@ ggplot(summary_filtered, aes(x = metric, y = value, fill = as.factor(exemption),
 
 #### Yearly Trends in Residential Data {.unnumbered}
 
-Using residential property assessment data from 2015 to 2025, we also analyzed yearly changes in taxable building values to explore typical property tax growth patterns as well as shifts triggered by significant economic events. 
-
 By plotting the yearly taxable building values for exempt and non-exempt properties from 2015 to 2025, we observed that non-exempt properties experienced a significantly faster increase in taxable values compared to exempt properties. This long-term trend indicates that non-exempt homeowners have been more exposed to steadily rising tax burdens over time. Moreover, the sharper changes observed between 2022 and 2025 further highlight how non-exempt properties responded more sensitively to broader economic shifts, whereas exempt properties remained relatively insulated, maintaining a more stable taxation trajectory.
 
 ```{r Yearly Trends, echo=FALSE, message=FALSE, warning=FALSE, fig.show='hold'}
@@ -592,12 +583,9 @@ yearly_residential_summary %>%
     theme(axis.text.x = element_text(angle = 45, hjust = 1))
 ```
 
-
 #### Property Transfer Types {.unnumbered}
 
-To better understand the characteristics of exempt properties, we also explored various aspects of property transfer information. Here are some key findings.
-
-We analyzed exemption rates across different deed types and found that properties associated with "Deed - Deceased" and "Satisfaction of Mortgage" exhibited notably higher exemption rates. These deed types typically reflect intra-family transfers, inheritance, or mortgage settlements, aligning with common pathways to exemption eligibility. Logistic regression analysis confirmed deed type as a significant predictor of exemption status. Selected deed types can be encoded as binary features for use in predictive modeling.
+Properties associated with "Deed - Deceased" and "Satisfaction of Mortgage" exhibited notably higher exemption rates. These deed types typically reflect intra-family transfers, inheritance, or mortgage settlements, aligning with common pathways to exemption eligibility. Logistic regression analysis confirmed deed type as a significant predictor of exemption status. Selected deed types can be encoded as binary features for use in predictive modeling.
 
 ```{r transfer_types_none, eval=FALSE}
 transfers2 <- fread("Data/RTT_SUMMARY.csv")
@@ -623,7 +611,7 @@ document_exemption_model <- glm(exemption ~ document_type, data = residential_tr
 ```
 
 ```{r transfer_types, echo=FALSE, message=FALSE, warning=FALSE, fig.show='hold'}
-transfers_new <- fread("residential_transfers_cleaned.csv") %>% 
+transfers_new <- fread("Data/residential_transfers_cleaned.csv") %>% 
   rename(has_recent_transfer = has_recent_transfer.x)
 
 residential_properties <- residential_properties %>%
@@ -652,7 +640,6 @@ ggplot(residential_properties, aes(x = latest_document_type_DEED, fill = as.fact
 #### Recently Transfer {.unnumbered}
 
 On average, 20.07% of properties without a homestead exemption had a transfer in the past two years, compared to 16.17% of those with an exemption. This indicates that properties without exemptions tend to have a slightly higher likelihood of recent transactions.
-
 
 ```{r Recent_Transfer_none, eval=FALSE}
 # Convert recording_date to Date format
@@ -705,7 +692,17 @@ ggplot(residential_properties, aes(x = factor(has_recent_transfer), fill = facto
 
 ### Neighborhood Demographic Characteristics {.tabset}
 
+To contextualize individual property patterns within broader neighborhood trends, we also incorporate demographic and financial indicators at the census tract level. Although not formally part of the Homestead Exemption eligibility criteria, these characteristics may influence awareness, application behavior, and outreach effectiveness.
+
+We draw on American Community Survey (ACS) 5-year estimates to include median home value and owner-occupancy rate. Median home value captures the relative wealth of a neighborhood and may correlate with a homeowner’s perceived need for or interest in the exemption. Owner occupancy provides a proxy for residential stability and investment in place—areas with higher rates may be more likely to have eligible and engaged homeowners.
+
+Zoning composition is used to approximate the land use context of each tract. A higher proportion of residential zoning suggests more eligible properties, while mixed-use or commercially dominated areas may contain fewer owner-occupied homes.
+
+We also include tax balance data to capture financial stress at the neighborhood level. Specifically, we calculate the percentage of properties within each tract that have outstanding tax balances, including principal, penalties, and interest. While this is not a stated criterion for the Homestead Exemption, high levels of tax delinquency may reflect broader socioeconomic challenges—such as lower income, limited English proficiency, or low institutional trust—that influence exemption participation.
+
 #### Median Home Value {.unnumbered}
+
+Properties with the Homestead Exemption are typically located in census tracts where the median home value ranges between $200,000 and $400,000, which is generally higher than in tracts without exemptions. However, census tracts with median home values exceeding $400,000 tend to have fewer properties with exemptions, suggesting that wealthier neighborhoods may have lower participation in the program.
 
 ```{r median_home_value, echo=FALSE, message=FALSE, warning=FALSE, fig.show='hold'}
 #join to dataset
@@ -720,7 +717,7 @@ residential_properties <- residential_properties %>%
 
 ggplot(residential_properties, 
        aes(x = median_home_value, color = as.factor(exemption))) +
-  geom_density(size = 0.5) +
+  geom_density(size = 0.7) +
   scale_color_manual(values = colors2) +
   labs(title = "Median Home Value per Census Tract",
        x = "Median Home Value",
@@ -737,16 +734,18 @@ Notably, higher rates of owner occupancy don't automatically translate to higher
 ```{r owner_occupancy, echo=FALSE, message=FALSE, warning=FALSE, fig.show='hold'}
 ggplot(residential_properties, 
        aes(x = owner_occ_rate, color = as.factor(exemption))) +
-  geom_density(size = 1) +
+  geom_density(size = 0.7) +
   scale_color_manual(values = colors2) +
-  labs(title = "Median Home Value per Census Tract",
-       x = "Median Home Value",
+  labs(title = "Owner Occupancy Rate per Census Tract",
+       x = "Owner Occupancy Rate",
        y = "Density",
        color = "Exemption") +
   base_theme
 ```
 
 #### Zoning Analysis  {.unnumbered}
+
+Census tracts with single-family zoning, both detached and attached, have the highest percentage of properties with the Homestead Exemption. In contrast, multi-family or mixed-use residential zones tend to have fewer properties enrolled in the exemption program.
 
 ```{r zoning, echo=FALSE, message=FALSE, warning=FALSE, fig.show='hold'}
 # Data frame of zoning types
@@ -854,9 +853,7 @@ zoning_summary_chart
 
 #### Tax Balance Rate {.unnumbered}
 
-Tax balance represents the total tax billing in a census tract, including principal, penalties, and interest from previous years. While not explicitly stated in the eligibility criteria for the Homestead Exemption, it may affect homeowners' trust and willingness to apply, influencing the possibility of approval. Additionally, the total tax balance in a census tract can serve as an indicator of broader socioeconomic characteristics, such as income levels, educational attainment, and English proficiency, all of which may impact outreach efforts for the Homestead Exemption program.
-
-In our model, we include the percentage of properties that owe tax balances of the census tract where a property is located.
+Properties with the Homestead Exemption are more likely to be located in census tracts where fewer properties have outstanding tax balances, particularly in tracts where the tax balance rate is less than 10%.
 
 ```{r tax_balance, echo=FALSE, message=FALSE, warning=FALSE, fig.show='hold'}
 balances <- read.csv("Data/real_estate_tax_balances_census_tract.csv")
@@ -904,7 +901,7 @@ residential_properties <- residential_properties %>%
 
 ggplot(residential_properties, 
        aes(x = balance_rate, color = as.factor(exemption))) +
-  geom_density(size = 1) +
+  geom_density(size = 0.7) +
   scale_color_manual(values = colors2) +
   labs(title = "Pertentage of Properties In Tax Balance per Census Tract",
        x = "Balance Rate",
@@ -929,19 +926,26 @@ properties_model <- residential_properties %>%
 
 # Modeling
 
+We use the identified property and neighborhood characteristics as predictor variables to model the likelihood that a property receives the Homestead Exemption. The goal is to better understand the key factors associated with exemption status and to identify potentially eligible properties that are not currently enrolled.
+
+We test several classification models, including K-Nearest Neighbors (KNN) and Random Forest, and iteratively refine our feature set. Spatial indicators such as longitude, latitude, and spatial lag terms are incorporated to capture geographic patterns in exemption participation. Our best-performing model is based on XGBoost, which provides the highest predictive accuracy.
+
+![Method](rmd_png/method.png)
+
 ## Correlation Matrix
 
+We begin by selecting and loading the relevant data, then generate a correlation matrix to gain an initial understanding of the relationships between variables.
+
 ```{r read_data , echo=FALSE, message=FALSE, warning=FALSE, fig.show='hold'}
-properties_model <- fread("xgb_full_pred.csv")
+properties_model <- fread("xgb_full_pred_0505.csv")
 
-variables4 <- c("same_address","rental_license",
+variables5 <- c("same_address","rental_license",
                 "avg_market_value","sd_market_value","lag_exemption","balance_rate","senior_owner_rate","latest_document_type_DEED","median_home_value", "lon_4326","owner_occ_rate","has_recent_transfer","geographic_ward", "poverty_rate","lat_4326")
-
 ```
 
 ```{r Correlation Matrix, echo=FALSE, message=FALSE, warning=FALSE, fig.show='hold'}
 numericVars <- as.data.frame(properties_model) %>%
-  dplyr::select(variables4
+  dplyr::select(variables5
                 ) %>%  
   select_if(is.numeric) %>% 
   na.omit() 
@@ -962,6 +966,10 @@ numericVars %>%
 
 ## Splite Dataset
 
+Next, we split the dataset into two parts: 75% for training and 25% for testing. The training set is used to build models using various methods, while the testing set is used to evaluate model performance and identify the most accurate one.
+
+![Model](rmd_png/model.png)
+
 ```{r splite, eval=FALSE}
 properties_model<- properties_model%>%
   mutate(property_ID = seq(1:n()))%>%
@@ -974,6 +982,7 @@ properties_test  <- testing(data_split)
 ```
 
 ## Add Spatial Lag For Training
+
 To prevent data leakage, spatial lag variables need to be calculated separately for the training and test datasets. If spatial information from the test set is used during the training phase, the model would "see" part of the test data's structure in advance, leading to overfitting and failing to reflect the true generalization ability of the model.
 
 Therefore, in this analysis, we first split the data and then independently calculate the spatial adjacency relationships and spatial lag values for each subset. This approach not only better reflects real-world scenarios (where the model only has access to the training data for prediction) but also improves the accuracy and reliability of model evaluation.
@@ -1004,6 +1013,10 @@ properties_test$lag_exemption[is.na(properties_test$lag_exemption)] <- mean_lag_
 
 ## Cross Validation
 
+To ensure the robustness of our model and account for geographic variation, we implement grouped cross-validation using `group_vfold_cv()`. In this case, we use LOGOCV (Leave-One-Group-Out Cross Validation) based on the geographic_ward variable, which allows us to evaluate model performance across different neighborhood groups.
+
+Before modeling, we also create a preprocessing recipe that includes one-hot encoding for categorical variables, removal of zero-variance predictors, and normalization (centering and scaling) for numeric predictors.
+
 ```{r cv, eval=FALSE}
 ## LOGOCV on Neighborhood with group_vfold_cv()
 cv_splits_geo <- group_vfold_cv(properties_train,  
@@ -1020,25 +1033,23 @@ model_rec <- recipe(exemption ~ ., data = properties_train)  %>%
 
 ## XGBoost Model
 
-The grid search is conducted with the best model selected based on having the lowest Root Mean Squared Error.
+We train an **XGBoost classification model** to predict exemption eligibility, using a grid search to tune key hyperparameters (mtry and min_n). The model is built within a workflow that includes preprocessing steps such as dummy encoding and feature scaling. We apply group-based cross-validation by geographic ward to evaluate model performance and select the best combination of parameters based on accuracy. The finalized model is then fitted on the entire training set and evaluated on the holdout test set. Predictions from both cross-validation and the final test set are collected for further analysis.
 
 ```{r XGBoost, eval=FALSE}
+
 ## Model specifications
 XGB_plan <- boost_tree() %>%
   set_args(mtry  = tune()) %>%
   set_args(min_n = tune()) %>%
-  #set_args(learn_rate = tune())%>%
-  #set_args(tree_depth = tune())%>%
   set_args(trees = 200) %>% 
   set_engine("xgboost") %>% 
-  set_mode("regression") #"classification"
+  set_mode("classification") 
 
 
 # Hyperparameter grid for glmnet (penalization)
 xgb_grid <- expand.grid(
   mtry = c(3, 7,10),  
   min_n = c(1,5,10)
-  #, learn_rate = c(0.01, 0.3),tree_depth = c(3, 5, 7, 10)  
 )
 
 # create workflow
@@ -1050,7 +1061,7 @@ xgb_wf <-
 
 # fit model to workflow and calculate metrics
 control <- control_resamples(save_pred = TRUE, verbose = TRUE)
-metrics <- metric_set(rmse, rsq, mae) #accuracy, sensitivity, specificity
+metrics <- metric_set(roc_auc, accuracy, kap)
 xgb_tuned <- xgb_wf %>%
   tune::tune_grid(.,
                   resamples = cv_splits_geo,
@@ -1062,9 +1073,9 @@ xgb_tuned <- xgb_wf %>%
 collect_metrics(xgb_tuned)
 
 ## 'Best' by some metric and margin
-show_best(xgb_tuned, metric = "rsq", n = 15)
+show_best(xgb_tuned, metric = "accuracy", n = 15)
 
-xgb_best_params    <- select_best(xgb_tuned, metric = "rmse"   )
+xgb_best_params    <- select_best(xgb_tuned, metric = "accuracy"   )
 
 xgb_best_wf    <- finalize_workflow(xgb_wf, xgb_best_params)
 
@@ -1083,90 +1094,86 @@ xgb_best_OOF_preds <- collect_predictions(xgb_tuned) %>%
 xgb_val_pred_geo    <- collect_predictions(xgb_val_fit_geo)
 ```
 
+Based on the feature importance plot from the XGBoost model, the variable `same_address`, indicating whether the owner's mailing address matches the property address, is by far the most influential predictor of exemption status. This likely reflects that owner-occupied properties are more likely to apply for and receive exemptions. Other top predictors include `rental_license`, suggesting that properties with rental licenses are less likely to receive exemptions, and measures of property value such as `sd_market_value` (standard deviation of assessed value), `avg_market_value`, and `median_home_value` at the tract level, which reflect both property characteristics and neighborhood affordability. Spatial indicators like` lag_exemption`, `lat_4326`, and `lon_4326` also contribute significantly, showing that spatial clustering and geographic location influence exemption patterns. Overall, a mix of ownership status, rental activity, assessed value, and spatial and demographic context most strongly shape exemption eligibility.
+
+![Model](rmd_png/influence.png)
 
 ```{r Influence of vairables, eval=FALSE}
 # Influence of vairables
 xgb_final_wf <- finalize_workflow(xgb_wf, xgb_best_params)
 xgb_final_fit <- fit(xgb_final_wf, data = properties_train)
-
 xgb_model <- extract_fit_parsnip(xgb_final_fit)$fit
-
 xgb_imp <- xgboost::xgb.importance(model = xgb_model)
-
 xgb_imp_sorted <- xgb_imp %>% 
   arrange(desc(Gain))
-
 print(xgb_imp_sorted)
-
 xgboost::xgb.plot.importance(xgb_imp, top_n = 30, main = "Top 20 Most Influential Variables")
-
 ```
 
 ## Pridict 
 
-```{r predict,eval=FALSE}
-xgb_full_pred4 <- xgb_best_wf %>% 
-  fit(data = properties_model_4) %>%
-  predict(new_data = properties_model_4) %>%
-  bind_cols(properties_model_4)
+We use the final model to predict eligibility for exemptions across all properties. We set a 50% probability threshold: properties with predicted probabilities below 50% are classified as ineligible, while those above 50% are classified as eligible. This allows us to compare our predictions with the current exemption status.
 
-xgb_full_pred4 <- xgb_full_pred4 %>%
-  mutate(exemption.pred4 = ifelse(.pred >= 0.5, "1", "0"))%>%
-  rename(.pred4=.pred)
+As shown, properties without exemptions (marked in red) follow a clear bimodal distribution. The right peak represents the 153,982 properties correctly predicted as ineligible. The left peak highlights over 75,708 properties that are likely eligible for exemption but are currently missing out. These are the properties we will target for outreach.
+
+For properties that already have exemptions (marked in green), there is a single peak, which is expected. This peak corresponds to the 205,780 properties predicted as eligible. The right tail represents 34,006 properties that are incorrectly predicted as ineligible despite having exemptions. We aim to minimize this misclassification. The model performs well in minimizing errors, achieving an 85.8% accuracy in predicting eligible properties with exemptions.
+
+```{r predict,eval=FALSE}
+xgb_full_pred <- xgb_best_wf %>% 
+  fit(data = properties_predict0) %>%
+  predict(new_data = properties_predict0,type="prob") %>%
+  bind_cols(properties_predict0)
+
+xgb_full_pred <- xgb_full_pred %>%
+  mutate(exemption.pred = ifelse(.pred >= 0.5, "1", "0"))%>%
+  rename(.pred=.pred)
 ```
 
 ```{r PLOT result, echo=FALSE, message=FALSE, warning=FALSE, fig.show='hold'}
-
-ggplot(properties_model, aes(x = .pred4, fill = as.factor(exemption))) + 
+ggplot(properties_model, aes(x = .pred, fill = as.factor(exemption))) + 
   geom_density() +
   facet_grid(exemption ~ .) +
   scale_fill_manual(values = colors2) +
   labs(x = "Probabilities", y = "Density of probabilities",
        title = "Distribution of predicted probabilities by observed outcome",
-             subtitle = "No gentrification = 0, Gentrification = 1") +
+             subtitle = "Without Exemption = 0, Exemption = 1") +
   theme_minimal() +
   theme(legend.position = "none") 
-
 ```
 
 ```{r confusionmatrix, echo=FALSE, message=FALSE, warning=FALSE, fig.show='hold'}
-properties_model$exemption.pred4 <- factor(as.character(properties_model$exemption.pred4), levels = c("0", "1"))
+properties_model$exemption.pred <- factor(as.character(properties_model$exemption.pred), levels = c("0", "1"))
 properties_model$exemption<- factor(as.character(properties_model$exemption),       levels = c("0", "1"))
 
-caret::confusionMatrix(properties_model$exemption.pred4, properties_model$exemption, 
+caret::confusionMatrix(properties_model$exemption.pred, properties_model$exemption, 
                        positive = "1")
 ```
 
-
 # Predict on False Positive
 
+We focus on false positive properties—those predicted as eligible but currently not receiving an exemption. These properties are key targets for outreach, as they may be missing out on exemption opportunities.
+
 ```{r read_fp, echo=FALSE, message=FALSE, warning=FALSE, fig.show='hold'}
-properties_model <- properties_model %>%
-  mutate(exemption.pred0.5 = ifelse(.pred4 >= 0.5, "1", "0"),
-         exemption.pred0.6 = ifelse(.pred4 >= 0.6, "1", "0"),
-         exemption.pred0.7 = ifelse(.pred4 >= 0.7, "1", "0"),
-         exemption.pred0.8 = ifelse(.pred4 >= 0.8, "1", "0"),
-         exemption.pred0.9 = ifelse(.pred4 >= 0.9, "1", "0"))
+library(readr)
+library(dplyr)
+library(sf)
 
-false_positive <- properties_model %>%
-  filter(exemption == 0, exemption.pred0.5 == 1)
+fp_data <- read_csv("fp_data_0505.csv")
+fp_sf <- st_as_sf(fp_data, coords = c("lon_4326", "lat_4326"), crs = 4326)
 
-fp_sf <- st_as_sf(false_positive, coords = c("lon_4326", "lat_4326"), crs = 4326)
-
-philly_shapefile <- st_read("data/tl_2020_42101_tract20/tl_2020_42101_tract20.shp")
+library(here)
+philly_shapefile <- st_read(here("Data", "tl_2020_42101_tract20", "tl_2020_42101_tract20.shp"))
 ```
 
 ## Spatial Density of Missed Exemptions
 
-Kernel Density Estimation heatmap hotspots = Regions where the estimated probability density function is high.
-It is smoother and continuous, showing density trends rather than clear cluster boundaries.
-Even moderately dense but widespread areas can appear as "hot" in the visualization.
+A density map reveals clustering patterns of missed exemptions across the city. Southwest and North Philadelphia emerge as notable hotspots, suggesting spatial barriers or inequities in exemption uptake. These areas may benefit from additional support or communication efforts.
 
-```{r kde, echo=FALSE, message=FALSE, warning=FALSE, fig.show='hold'}
+```{r densitymap, echo=FALSE, message=FALSE, warning=FALSE, fig.show='hold'}
 ggplot() +
   geom_sf(data = philly_shapefile, fill = "white", color = "gray80") +
   stat_density2d(
-    data = false_positive, 
+    data = fp_data, 
     aes(x = lon_4326, y = lat_4326, fill = ..level..), 
     geom = "polygon", alpha = 0.6, color = NA
   ) +
@@ -1179,11 +1186,9 @@ ggplot() +
 
 ## DBSCAN
 
-
 DBSCAN hotspots = Regions where at least minPts points are located within a distance of eps from each other.
 It is stricter and tends to ignore areas that are high-density but more dispersed.
 Only dense clusters of closely packed points are identified.
-
 
 ```{r bdscan, echo=FALSE, message=FALSE, warning=FALSE, fig.show='hold'}
 fp_proj <- st_transform(fp_sf, 26918)
