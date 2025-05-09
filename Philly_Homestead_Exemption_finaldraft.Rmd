@@ -7,7 +7,7 @@ output:
     code_download: true
     toc_float: true
     highlight: zenburn 
-    css: custom_theme.css   
+    css: css/custom_theme.css   
 ---
 
 ```{r setup, include=FALSE}
@@ -59,6 +59,8 @@ library(leaflet)
 library(knitr)
 library(kableExtra)
 library(gt)
+library(readr)
+library(here)
 
 options(scipen = 999)
 root.dir = "https://raw.githubusercontent.com/urbanSpatial/Public-Policy-Analytics-Landing/master/DATA/"
@@ -308,7 +310,6 @@ ggplot(census_tracts_enriched %>%
     axis.text = element_blank(), 
     legend.position = "right"
   )
-
 ```
 
 ```{r ADD_Spatial_lag, eval=FALSE}
@@ -381,7 +382,6 @@ ggplot(residential_properties, aes(x = as.factor(owner_count), fill = as.factor(
     fill = "Homestead Exemption"
   ) +
   base_theme
-
 ```
 
 #### Rental Licenses {.unnumbered}
@@ -420,7 +420,6 @@ ggplot(properties_rental,
     fill = "Homestead Exemption"
   ) +
   base_theme
-
 ```
 
 #### Commertial Licenses {.unnumbered}
@@ -475,7 +474,6 @@ ggplot(properties_commercial,
     fill = "Homestead Exemption"
   ) +
   base_theme
-
 ```
 
 ### Historical Property Characteristics {.tabset}
@@ -556,7 +554,6 @@ ggplot(summary_filtered, aes(x = metric, y = value, fill = as.factor(exemption),
        y = "Value ($)", 
        fill = "Exemption Status") +
   base_theme 
-
 ```
 
 
@@ -673,17 +670,12 @@ recent_transfers <- recent_transfers %>%
 # Step 3: Merge this information into `residential_transfers_cleaned`
 residential_transfers_cleaned <- residential_transfers_cleaned %>%
   left_join(recent_transfers, by = "parcel_number")
-
 ```
 
 ```{r recent_transfer, echo=FALSE, message=FALSE, warning=FALSE, fig.show='hold'}
 #Recent(2y) Transfer Analysis
 ggplot(residential_properties, aes(x = factor(has_recent_transfer), fill = factor(exemption))) +
   geom_bar(position = "dodge") +  
-  geom_text(stat = "count", aes(label = ..count.., color = factor(exemption)),  
-            position = position_dodge(width = 0.9),  
-            vjust = -0.5,  
-            size = 3) +  
   scale_fill_manual(values = c("0" = "#e42524", "1" = "#00ADA9"),  
                     labels = c("0" = "No Exemption", "1" = "With Exemption")) +  
   scale_color_manual(values = c("0" = "#e42524", "1" = "#00ADA9")) +  
@@ -694,7 +686,6 @@ ggplot(residential_properties, aes(x = factor(has_recent_transfer), fill = facto
   theme_minimal() +
   theme(legend.position = "none") 
 ```
-
 
 ### Neighborhood Demographic Characteristics {.tabset}
 
@@ -730,7 +721,6 @@ ggplot(residential_properties,
        y = "Density",
        color = "Exemption") +
   base_theme
-
 ```
 
 #### Owner Occupancy {.unnumbered}
@@ -821,27 +811,13 @@ zoning_summary <- filtered_properties %>%
   ) %>%
   arrange(desc(pct_homestead))
 
-
 # Homestead rates by zoning type
-zoning_summary_chart <- ggplot(zoning_summary, 
+ggplot(zoning_summary, 
        aes(x = reorder(zoning_type, -pct_homestead), 
            y = pct_homestead)) +
   geom_bar(stat = "identity", 
            fill = "#00ADA9",
            alpha = 0.8) +
-  geom_text(aes(label = round(pct_homestead,1)), 
-            vjust = -0.5,
-            size = 3) +
-  theme_minimal() +
-  theme(
-    axis.text.x = element_text(angle = 45, hjust = 1),
-    panel.grid.major.x = element_blank(),
-    plot.title = element_text(size = 18, face = "bold"),
-    plot.subtitle = element_text(size = 14),
-    axis.title = element_text(size = 14),
-    axis.text = element_text(size = 14),
-    legend.text = element_text(size = 14)
-  ) +
   labs(
     title = "Homestead Exemption Rates by Zoning Category in Philadelphia",
     subtitle = "Residential and Mixed-Use Districts Only",
@@ -852,9 +828,9 @@ zoning_summary_chart <- ggplot(zoning_summary,
   scale_y_continuous(
     limits = c(0, max(zoning_summary$pct_homestead) * 1.1),
     labels = function(x) paste0(x, "%")
-  )
-
-zoning_summary_chart
+  ) +
+  base_theme +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
 ```
 
 #### Tax Balance Rate {.unnumbered}
@@ -913,8 +889,7 @@ ggplot(residential_properties,
        x = "Balance Rate",
        y = "Density",
        color = "Exemption") +
-  theme_minimal() +
-  theme(legend.position = "bottom")
+  base_theme
 ```
 
 ```{r select_variable,eval=FALSE}
@@ -943,21 +918,18 @@ We test several classification models, including K-Nearest Neighbors (KNN) and R
 We begin by selecting and loading the relevant data, then generate a correlation matrix to gain an initial understanding of the relationships between variables.
 
 ```{r read_data , echo=FALSE, message=FALSE, warning=FALSE, fig.show='hold'}
-properties_model <- fread("xgb_full_pred_0505.csv")
-
+properties_model <- fread("Data/xgb_full_pred_0505.csv")
 variables5 <- c("same_address","rental_license",
                 "avg_market_value","sd_market_value","lag_exemption","balance_rate","senior_owner_rate","latest_document_type_DEED","median_home_value", "lon_4326","owner_occ_rate","has_recent_transfer","geographic_ward", "poverty_rate","lat_4326")
 ```
 
 ```{r Correlation Matrix, echo=FALSE, message=FALSE, warning=FALSE, fig.show='hold'}
 numericVars <- as.data.frame(properties_model) %>%
-  dplyr::select(variables5
-                ) %>%  
+  dplyr::select(variables5) %>%  
   select_if(is.numeric) %>% 
   na.omit() 
 
 correlation_matrix <- cor(numericVars)
-
 
 numericVars %>% 
   correlate() %>% 
@@ -1027,7 +999,6 @@ Before modeling, we also create a preprocessing recipe that includes one-hot enc
 ## LOGOCV on Neighborhood with group_vfold_cv()
 cv_splits_geo <- group_vfold_cv(properties_train,  
                                 group = "geographic_ward")
-print(cv_splits_geo)
 
 # Feature Creation
 model_rec <- recipe(exemption ~ ., data = properties_train)  %>%
@@ -1042,7 +1013,6 @@ model_rec <- recipe(exemption ~ ., data = properties_train)  %>%
 We train an **XGBoost classification model** to predict exemption eligibility, using a grid search to tune key hyperparameters (mtry and min_n). The model is built within a workflow that includes preprocessing steps such as dummy encoding and feature scaling. We apply group-based cross-validation by geographic ward to evaluate model performance and select the best combination of parameters based on accuracy. The finalized model is then fitted on the entire training set and evaluated on the holdout test set. Predictions from both cross-validation and the final test set are collected for further analysis.
 
 ```{r XGBoost, eval=FALSE}
-
 ## Model specifications
 XGB_plan <- boost_tree() %>%
   set_args(mtry  = tune()) %>%
@@ -1050,7 +1020,6 @@ XGB_plan <- boost_tree() %>%
   set_args(trees = 200) %>% 
   set_engine("xgboost") %>% 
   set_mode("classification") 
-
 
 # Hyperparameter grid for glmnet (penalization)
 xgb_grid <- expand.grid(
@@ -1063,7 +1032,6 @@ xgb_wf <-
   workflow() %>% 
   add_recipe(model_rec) %>% 
   add_model(XGB_plan)
-
 
 # fit model to workflow and calculate metrics
 control <- control_resamples(save_pred = TRUE, verbose = TRUE)
@@ -1080,13 +1048,10 @@ collect_metrics(xgb_tuned)
 
 ## 'Best' by some metric and margin
 show_best(xgb_tuned, metric = "accuracy", n = 15)
-
 xgb_best_params    <- select_best(xgb_tuned, metric = "accuracy"   )
-
 xgb_best_wf    <- finalize_workflow(xgb_wf, xgb_best_params)
 
 # last_fit() emulates the process where, after determining the best model, the final fit on the entire training set is needed and is then evaluated on the test set.
-
 xgb_val_fit_geo <- xgb_best_wf %>% 
   last_fit(split     = data_split,
            control   = control,
@@ -1165,7 +1130,7 @@ These results suggest that while the model performs equitably for most groups, a
 ![](rmd_png/fn.png)
 
 ```{r sensitivity, eval=FALSE}
-data1 <- read.csv("xgb_full_pred_0505.csv")
+data1 <- read.csv("Data/xgb_full_pred_0505.csv")
 census_tracts <- st_read("Data/phila_census1.gpkg")
 
 data1_sf <- st_as_sf(data1, coords = c("lon_4326", "lat_4326"), crs = 4326, remove = FALSE)
@@ -1269,14 +1234,8 @@ fn_summary %>%
 We focus on false positive properties—those predicted as eligible but currently not receiving an exemption. These properties are key targets for outreach, as they may be missing out on exemption opportunities.
 
 ```{r read_fp, echo=FALSE, message=FALSE, warning=FALSE, fig.show='hold'}
-library(readr)
-library(dplyr)
-library(sf)
-
-fp_data <- read_csv("fp_data_0505.csv")
+fp_data <- read_csv("Data/fp_data_0505.csv")
 fp_sf <- st_as_sf(fp_data, coords = c("lon_4326", "lat_4326"), crs = 4326)
-
-library(here)
 philly_shapefile <- st_read(here("Data", "tl_2020_42101_tract20", "tl_2020_42101_tract20.shp"))
 ```
 
@@ -1296,7 +1255,6 @@ ggplot() +
   coord_sf() +
   labs(title = "Density of False Positive Properties in Philadelphia") +
   theme_minimal()
-
 ```
 
 ## DBSCAN
@@ -1307,7 +1265,6 @@ Only dense clusters of closely packed points are identified.
 
 ```{r bdscan, echo=FALSE, message=FALSE, warning=FALSE, fig.show='hold'}
 fp_proj <- st_transform(fp_sf, 26918)
-
 coords <- st_coordinates(fp_proj)
 
 library(dbscan)
@@ -1316,7 +1273,6 @@ eps_val <- 300
 min_pts <- 20    
 
 db_result <- dbscan(coords, eps = eps_val, minPts = min_pts)
-
 fp_proj$cluster <- as.factor(db_result$cluster)
 
 ggplot(fp_proj) +
@@ -1516,7 +1472,7 @@ fp_summary <- bind_rows(
   fp_young
 )
 
-gt_table <- fp_summary %>%
+fp_summary %>%
   gt(groupname_col = "Group") %>%
   tab_header(
     title = "Summary of False Positive Rates by Demographic Group"
@@ -1552,10 +1508,7 @@ gt_table <- fp_summary %>%
     style = cell_text(color = "black"),
     locations = cells_column_labels()
   )
-
-as_raw_html(gt_table)
 ```
-
 
 # Cost-Benefit Analysis
 
@@ -1575,11 +1528,9 @@ ggplot(philly_moran) +
     subtitle = "Clusters of Missed Exemption Opportunities"
   ) +
   theme_minimal()
-
 ```
 
 # Application Development
-
 
 ```{r language_tract,echo=FALSE, message=FALSE, warning=FALSE, fig.show='hold'}
 language_data <- st_read("./Data/philly_language_dominance.geojson")
@@ -1633,7 +1584,7 @@ properties_with_language <- properties_no_exemption %>%
   )
 
 # Summary of dominant languages across all tracts
-language_summary <- language_data %>%
+language_data %>%
   st_drop_geometry() %>%
   group_by(dominant_language) %>%
   summarise(
@@ -1666,7 +1617,7 @@ language_summary <- language_data %>%
   kableExtra::row_spec(0, bold = TRUE, font_size = 19)  # Makes header larger
 
 # Top 10 tracts with highest language percentages
-top_tracts <- language_data %>%
+language_data %>%
   st_drop_geometry() %>%
   arrange(desc(dominant_pct)) %>%
   head(10) %>%
@@ -1686,8 +1637,4 @@ top_tracts <- language_data %>%
     full_width = TRUE
   ) %>%
   kableExtra::row_spec(0, bold = TRUE, font_size = 19)  # Makes header larger
-
-# Display both tables
-language_summary
-top_tracts
 ```
