@@ -2139,6 +2139,7 @@ collect_metrics(xgb_tuned) %>%
   theme_minimal()
 ```
 
+The model’s sensitivity—its ability to correctly identify current exemption holders—is high and consistent across most demographic groups, with rates around 86% and false negative rates (misses) around 14%. 
 The threshold is set at 0.5, where any predictions with a probability of 0.5 or over are categorized as predicted to be eligible for the exemption. This has 
 ```{r}
 xgb_val_pred_geo$exemption.pred <- as.factor(ifelse(xgb_val_pred_geo$.pred >= 0.5, "1", "0") )
@@ -2207,7 +2208,16 @@ The target outreach group are the false positives. At a 0.5 threshold, this amou
 In terms of demographic across census tracts, areas with higher education and higher senior populations tend to have a higher propeortion of properties with a higher percentage of false positives, indicating missed exemption opportunities. People in those neighborhoods are more likely to get flagged by the model. This could reflect true differences in eligibility. For example, higher education levels may indicate more college students who do not own their homes, while areas with large senior populations may potentially reflect lower access and awareness of available exemptions.
 
 # Biasness Check of Model
-T
+The false negative rate was analyzed across different demographic groups. As discussed earlier, false negatives refer to properties already enrolled in the Homestead Exemption program that the model incorrectly predicted as ineligible.
+
+The model shows higher false negative rates—and thus lower effectiveness—in two types of areas:
+
+Low Education tracts: Sensitivity drops to 78.6%, with a higher false negative rate of 21.4%.
+
+Low Senior Population tracts: Sensitivity is much lower at 52.5%, with nearly half of exemption holders missed (FN rate 47.5%).
+
+These results suggest that while the model performs equitably for most groups, additional attention may be needed to ensure residents are not overlooked in outreach efforts.
+
 ```{r}
 
 ```
