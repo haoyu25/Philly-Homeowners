@@ -1691,7 +1691,3 @@ top_tracts <- language_data %>%
 language_summary
 top_tracts
 ```
-
-
-# Conclusion
-
