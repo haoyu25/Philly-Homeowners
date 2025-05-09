@@ -1,0 +1,311 @@
+---
+title: "False positives demographic summary"
+output: html_document
+date: "2025-04-28"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r cars}
+# Load required libraries
+library(sf)
+library(dplyr)
+library(readr)
+
+# Load the GeoJSON data
+data <- st_read("Data/properties_wo_exemption_0505pred.geojson")
+old_data <- st_read("Data/property_without_exemption_tractdata.geojson")
+```
+
+
+
+```{r}
+# Join all necessary demographic columns from old_data to data using GEOID
+data <- data %>%
+  left_join(
+    old_data %>% 
+      st_drop_geometry() %>% 
+      group_by(GEOID) %>%
+      summarize(
+        pct_wht = mean(pct_wht, na.rm = TRUE),
+        pct_fr1 = mean(pct_fr1, na.rm = TRUE),
+        lmtd_n1 = mean(lmtd_n1, na.rm = TRUE),
+        bch_dg1 = mean(bch_dg1, na.rm = TRUE),
+        snr_wn1 = mean(snr_wn1, na.rm = TRUE),
+        yng_wn1 = mean(yng_wn1, na.rm = TRUE),
+        mdn_ncm_1 = mean(mdn_ncm_1, na.rm = TRUE)
+      ),
+    by = "GEOID"
+  )
+
+```
+
+
+```{r}
+# Add demographic groupings FIRST
+data <- data %>%
+  mutate(
+    majority_white = ifelse(pct_wht > 0.5, "Majority White", "Majority Non-White"),
+    above_avg_income = ifelse(mdn_ncm_1 > median(mdn_ncm_1, na.rm = TRUE), "Above Average Income", "Below Average Income"),
+    high_foreign_born = ifelse(pct_fr1 > 0.5, "High Foreign Born", "Low Foreign Born"),
+    high_limited_english = ifelse(lmtd_n1 > 0.5, "High Limited English", "Low Limited English"),
+    high_education = ifelse(bch_dg1 > 0.5, "High Education", "Low Education"),
+    high_senior = ifelse(snr_wn1 > 0.5, "High Senior Population", "Low Senior Population"),
+    high_young = ifelse(yng_wn1 > 0.5, "High Young Population", "Low Young Population")
+  )
+
+# Now filter for false positives (X_pred1 >= 0.5)
+fp_data <- data %>% filter(X_pred_1 >= 0.5)
+
+# Function to calculate FP Rate per group
+calc_fp_rate <- function(var, label) {
+  total <- as.data.frame(data) %>% group_by(!!sym(var)) %>% summarise(n = n())
+  fp <- as.data.frame(fp_data) %>% group_by(!!sym(var)) %>% summarise(fp_n = n())
+  summary <- left_join(total, fp, by = var) %>%
+    mutate(fp_n = ifelse(is.na(fp_n), 0, fp_n),
+           fp_rate = fp_n / n) %>%  # <--- proportion, not percent
+    select(!!sym(var), n, fp_n, fp_rate)
+  colnames(summary) <- c("Category", "Total Properties", "False Positives", "FP Rate (%)")
+  summary$Group <- label
+  summary
+}
+
+# Calculate FP rates for each group
+fp_majority_white <- calc_fp_rate("majority_white", "Majority Race")
+fp_income <- calc_fp_rate("above_avg_income", "Income")
+fp_foreign_born <- calc_fp_rate("high_foreign_born", "Foreign Born")
+fp_limited_english <- calc_fp_rate("high_limited_english", "Limited English")
+fp_education <- calc_fp_rate("high_education", "Education")
+fp_senior <- calc_fp_rate("high_senior", "Senior Population")
+fp_young <- calc_fp_rate("high_young", "Young Population")
+
+# Combine all summaries
+fp_summary <- bind_rows(
+  fp_majority_white,
+  fp_income,
+  fp_foreign_born,
+  fp_limited_english,
+  fp_education,
+  fp_senior,
+  fp_young
+)
+
+```
+
+
+```{r}
+library(gt)
+
+fp_summary %>%
+  gt(groupname_col = "Group") %>%
+  tab_header(
+    title = "Summary of False Positive Rates by Demographic Group"
+  ) %>%
+  fmt_number(
+    columns = vars(`Total Properties`, `False Positives`),
+    decimals = 0,
+    use_seps = TRUE
+  ) %>%
+  fmt_percent(
+    columns = vars(`FP Rate (%)`),
+    decimals = 1
+  ) %>%
+  cols_label(
+    Category = "Category",
+    `Total Properties` = "Total Properties",
+    `False Positives` = "False Positives",
+    `FP Rate (%)` = "FP Rate (%)"
+  ) %>%
+  tab_style(
+    style = cell_fill(color = "#f0f0f0"),
+    locations = cells_row_groups()
+  ) %>%
+  tab_style(
+    style = cell_text(color = "black", weight = "bold"),
+    locations = cells_row_groups()
+  ) %>%
+  tab_style(
+    style = cell_text(color = "black"),
+    locations = cells_body()
+  ) %>%
+  tab_style(
+    style = cell_text(color = "black"),
+    locations = cells_column_labels()
+  )
+```
+
+Finding:
+The model's false positive rates—used to guide outreach—show mixed patterns of equity across demographic groups. While the rates are relatively consistent across racial groups (33.0% for Majority White vs 31.9% for Majority Non-White) and language proficiency levels (33.0% for High Limited English vs 33.3% for Low Limited English), there are notable disparities in other areas.
+
+Tracts with lower education levels show significantly lower FP rates (20.0% vs 33.1% in high education areas), and areas with fewer seniors have dramatically lower rates (7.3% vs 33.1% in high senior areas).
+
+Additionally, there's a slight bias toward wealthier areas (34.8% in Above Average Income vs 31.1% in Below Average Income). These patterns suggest that while the model maintains equity across some demographic dimensions, it may be under-predicting potential exemptions in areas with lower education levels and fewer seniors.
+
+This could reflect true differences in eligibility, but it's important to monitor these groups to ensure they are not inadvertently underserved. The model's performance in areas with high foreign-born populations (32.9% FP rate) is relatively equitable compared to low foreign-born areas (35.7%), though the small number of properties in low foreign-born tracts (2,635) makes this comparison less reliable.
+
+
+```{r}
+# write to CSV
+#write_csv(fp_summary, "false_positive_summary_by_group.csv")
+```
+
+```{r}
+data1 <- read.csv("xgb_full_pred_0505.csv")
+
+census_tracts <- st_read("Data/phila_census1.gpkg")
+```
+
+```{r}
+library(sf)
+library(dplyr)
+
+data1_sf <- st_as_sf(data1, coords = c("lon_4326", "lat_4326"), crs = 4326, remove = FALSE)
+census_tracts <- st_transform(census_tracts, crs = 4326)
+```
+
+```{r}
+data1_joined <- st_join(data1_sf, census_tracts, join = st_within, left = TRUE)
+```
+
+
+```{r}
+data1_joined <- data1_joined %>%
+  rename(
+    pct_wht = pct_white,
+    mdn_ncm_1 = median_income.y,
+    pct_fr1 = pct_foreign_born.y,
+    lmtd_n1 = limited_english_rate.y,
+    bch_dg1 = bach_degree_rate.y,
+    snr_wn1 = senior_owner_rate.y,
+    yng_wn1 = young_owner_rate.y
+  )
+```
+
+```{r}
+data1_joined <- data1_joined %>%
+  mutate(
+    majority_white = ifelse(pct_wht > 0.5, "Majority White", "Majority Non-White"),
+    above_avg_income = ifelse(mdn_ncm_1 > median(mdn_ncm_1, na.rm = TRUE), "Above Average Income", "Below Average Income"),
+    high_foreign_born = ifelse(pct_fr1 > 0.5, "High Foreign Born", "Low Foreign Born"),
+    high_limited_english = ifelse(lmtd_n1 > 0.5, "High Limited English", "Low Limited English"),
+    high_education = ifelse(bch_dg1 > 0.5, "High Education", "Low Education"),
+    high_senior = ifelse(snr_wn1 > 0.5, "High Senior Population", "Low Senior Population"),
+    high_young = ifelse(yng_wn1 > 0.5, "High Young Population", "Low Young Population")
+  )
+```
+
+```{r}
+library(dplyr)
+library(gt)
+library(sf)
+
+# Filter to only current exemption holders and drop geometry
+exempt_data <- data1_joined %>% filter(exemption == 1) %>% st_drop_geometry()
+tp_data <- exempt_data %>% filter(.pred_1 >= 0.5)
+fn_data <- exempt_data %>% filter(.pred_1 < 0.5)
+
+# Function to calculate FN Rate and Sensitivity per group
+calc_fn_rate <- function(var, label) {
+  total <- exempt_data %>% group_by(!!sym(var)) %>% summarise(n = n())
+  tp <- tp_data %>% group_by(!!sym(var)) %>% summarise(tp_n = n())
+  fn <- fn_data %>% group_by(!!sym(var)) %>% summarise(fn_n = n())
+  summary <- left_join(total, tp, by = var) %>%
+    left_join(fn, by = var) %>%
+    mutate(
+      tp_n = ifelse(is.na(tp_n), 0, tp_n),
+      fn_n = ifelse(is.na(fn_n), 0, fn_n),
+      sensitivity = tp_n / n,
+      fn_rate = fn_n / n
+    ) %>%
+    select(!!sym(var), n, tp_n, fn_n, sensitivity, fn_rate)
+  colnames(summary) <- c("Category", "Total Exemption Holders", "True Positives", "False Negatives", "Sensitivity", "FN Rate (%)")
+  summary$Group <- label
+  summary
+}
+
+# Calculate FN rates and sensitivity for each group
+fn_majority_white <- calc_fn_rate("majority_white", "Majority Race")
+fn_income <- calc_fn_rate("above_avg_income", "Income")
+fn_foreign_born <- calc_fn_rate("high_foreign_born", "Foreign Born")
+fn_limited_english <- calc_fn_rate("high_limited_english", "Limited English")
+fn_education <- calc_fn_rate("high_education", "Education")
+fn_senior <- calc_fn_rate("high_senior", "Senior Population")
+fn_young <- calc_fn_rate("high_young", "Young Population")
+
+# Combine all summaries
+fn_summary <- bind_rows(
+  fn_majority_white,
+  fn_income,
+  fn_foreign_born,
+  fn_limited_english,
+  fn_education,
+  fn_senior,
+  fn_young
+)
+
+# Create the table with Sensitivity
+fn_summary %>%
+  gt(groupname_col = "Group") %>%
+  tab_header(
+    title = "Summary of False Negative Rates by Demographic Group"
+  ) %>%
+  fmt_number(
+    columns = vars(`Total Exemption Holders`, `True Positives`, `False Negatives`),
+    decimals = 0,
+    use_seps = TRUE
+  ) %>%
+  fmt_percent(
+    columns = vars(`FN Rate (%)`, Sensitivity),
+    decimals = 1
+  ) %>%
+  cols_label(
+    Category = "Category",
+    `Total Exemption Holders` = "Total Exemption Holders",
+    `True Positives` = "True Positives",
+    `False Negatives` = "False Negatives",
+    `FN Rate (%)` = "FN Rate (%)",
+    Sensitivity = "Sensitivity"
+  )
+```
+
+```{r}
+fn_summary_clean %>%
+  gt(groupname_col = "Group") %>%
+  tab_header(
+    title = "Summary of False Negative Rates by Demographic Group"
+  ) %>%
+  fmt_number(
+    columns = vars(`Total Exemption Holders`, `True Positives`, `False Negatives`),
+    decimals = 0,
+    use_seps = TRUE
+  ) %>%
+  fmt_percent(
+    columns = vars(`FN Rate (%)`, Sensitivity),
+    decimals = 1
+  ) %>%
+  cols_label(
+    Category = "Category",
+    `Total Exemption Holders` = "Total Exemption Holders",
+    `True Positives` = "True Positives",
+    `False Negatives` = "False Negatives",
+    `FN Rate (%)` = "FN Rate (%)",
+    Sensitivity = "Sensitivity"
+  ) %>%
+  tab_style(
+    style = cell_text(weight = "bold"),
+    locations = cells_row_groups()
+  )
+```
+
+
+Findings:
+The model’s sensitivity—its ability to correctly identify current exemption holders—is high and consistent across most demographic groups, with rates around 86% and false negative rates (misses) around 14%. Performance is similar for both Majority White and Majority Non-White tracts, as well as across income, foreign-born, and limited English groups.
+
+
+However, the model is less effective in certain areas:
+Low Education tracts: Sensitivity drops to 78.6%, with a higher false negative rate of 21.4%.
+Low Senior Population tracts: Sensitivity is much lower at 52.5%, with nearly half of exemption holders missed (FN rate 47.5%).
+These results suggest that while the model performs equitably for most groups, additional attention may be needed to ensure residents in tracts with lower education levels or fewer seniors are not overlooked in outreach efforts.
+
