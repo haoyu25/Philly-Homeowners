@@ -1,7 +1,7 @@
 ---
 title: "Optimizing Entitlement Assistance Outreach to Homeowners"
 author: "Claudia Low, Haoyu Zhu, Rachel Midgett, Wenjun Zhu"
-date: "2025-05-06"
+date: "2025-05-09"
 output:
   rmdformats::material:
     code_download: true
@@ -1229,9 +1229,9 @@ fn_summary %>%
   )
 ```
 
-# Predict on False Positive
+# Missed Exemption Opportunities
 
-We focus on false positive properties—those predicted as eligible but currently not receiving an exemption. These properties are key targets for outreach, as they may be missing out on exemption opportunities.
+We focus on false positive properties—those predicted as eligible but currently not receiving an exemption. These properties are key targets for outreach, as they may be missing out on exemption opportunities. At a 0.5 threshold, this amounts to 75,708 houses.
 
 ```{r read_fp, echo=FALSE, message=FALSE, warning=FALSE, fig.show='hold'}
 fp_data <- read_csv("Data/fp_data_0505.csv")
@@ -1510,11 +1510,17 @@ fp_summary %>%
   )
 ```
 
-# Cost-Benefit Analysis
+# Outreach Strategies
+
+Three main potential outreach strategies are proposed. The costs for each of these strategies were then estimated based on existing cost structure references.
+
+![](rmd_png/outreach.png)
+
+The first potential strategy is **a direct mailing campaign**, which involves sending flyers out to all properties identified as false positives by the model. The flyer would contain information on what the homestead exemption program is, its eligibility criteria, instructions on how to apply, and relevant contact information, translated across different languages.  
+
+The next potential strategy is **a door-knocking campaign**. This involves going door-to-door to identified properties and having canvassers knock on the doors, sharing with homeowners who respond about the homestead exemption program. This face-to-face interaction can highly effective in raising awareness about the program, how to apply to it, and directly address any queries or doubts that the homeowner may have about it. From July 2023 to June 2024, the City of Philadelphia conducted a door-knocking campaign under the Overdose Awareness Canvassing and Trusted Community Messenger Program. Door-knocking is proposed to be conducted for high potential areas with clusters of missed homestead exemption opportunities. This optimizes limited resources in travel time and costs between properties for door knocking. This campaign would therefore only target the 12,302 homes identified in the two clusters, Northeast and South Philadelphia, which have 6,669 and 6,362 target outreach homes respectively.
 
 ```{r high_high,echo=FALSE, message=FALSE, warning=FALSE, fig.show='hold'}
-library(ggplot2)
-
 ggplot(philly_moran) +
   geom_sf(aes(fill = cluster_type), color = "gray90", size = 0.2) +
   scale_fill_manual(
@@ -1530,7 +1536,91 @@ ggplot(philly_moran) +
   theme_minimal()
 ```
 
-# Application Development
+Another potential strategy is to **reach out to community organizations** to educate organization leaders and staff about the exemption program, who can then spread the word to their members and the immediate local community about it. This may include community centres or religious organizations, such as the City of Life church in South Philadelphia.
+
+The estimated costs of the outreach strategies were calculated based on the cost structures from the Opioid Response Unit Door-Knocking Campaign and USPS Direct Mail Advertising cost calculator.
+
+Door Knocking:
+
+- Fixed Costs: Personnel + Supplies
+- Variable Costs: labor $34.80 /hour × (Properties ÷ 10 homes/hr)
+- Indirect Costs: 10% of total direct costs
+- Weekly Capacity: 1,600 homes (8 staff × 20 hrs × 10 homes/hr)
+
+Direct Mailing:
+
+- Fixed Costs: Personnel + Design + Supplies
+- Variable Costs: Printing $0.09 per piece | Mailing $0.29 per piece
+- Indirect Costs: 10% of total direct costs
+
+![](rmd_png/outreachcost.png)
+
+```{r outreach_cost, eval=FALSE}
+costs <- data.frame(
+  Category = c(
+    "Personnel", "Purchase Services", "Program Supplies", "Indirect Costs", "Total"
+  ),
+  `Direct Mailing\n(All: 77,317 homes)` = c(
+    2806, 726, 29678, 3321, 36532
+  ),
+  `Door-Knocking\n(High-Potential Clusters: 13,031 homes)` = c(
+    29840, 66816, 3798, 10045, 110499
+  )
+)
+
+costs[ ,2:3] <- lapply(costs[ ,2:3], dollar)
+
+kable(costs, align = "lrr", escape = FALSE, caption = "Program Outreach Costs by Strategy") %>%
+  kable_styling(full_width = FALSE, bootstrap_options = c("striped", "hover"))
+```
+
+The potential benefits of such outreach campaigns are vast. Based on the Data and Marketing Association, the average response rate to a direct mailing campaign ranges between 4 and 9%. With an assumption that 5% of all homeowners we outreach to then successfully enroll into a homestead exemption, the total direct benefit in homeowner savings would be Number of Properties × 0.05 × (up to) \$1,399. Using this formula, **there can be up to \$5,295,774.60 of savings across the homeowners.** Majority of the homestead exemptions have been observed to receive the maximum eligible exemption. Comparing this to the total outreach cost for a direct mailing campaign of \$35,861, the outreach can bring massive public benefit for a relatively small amount. Furthermore, this estimate does not even include the huge unquantified benefits of increased housing stability for homeowners and their families. This reduces transience and encourages owner occupancy and long term residency, which supports consistent neighborhood networks, fostering more engaged and invested local communities. Owner-occupied homes are also more likely to be well-maintained as there is greater incentive to upkeep the property, which benefits neighborhood aesthetics and property values.
+
+It is then explored how the use of the model compares to an alternative approach of a filtered list of properties. The properties are filtered to residential-only, non-corporation owned properties with the same address as its mailing address. **This results in 333,623 properties, which would cost $143,669 to execute solely the direct mailing campaign.** Using a machine learning model to identify properties to reach out to substantially narrows down the target number, allowing for huge cost-savings and an effective use of limited resources. The spatial analysis of false positives also allow for more targeted door-knocking to take place.
+
+![](rmd_png/simple_filter.png)
+
+```{r simple_filter, eval=FALSE}
+# Comparison to a business-as-usual filtering approach
+filtered_properties_resonly <- filtered_properties_ex %>% mutate(is_residential = ifelse(zoning %in% c(
+  "RM1", "RM2", "RM3", "RM4",
+  "RSA1", "RSA2", "RSA3", "RSA4", "RSA5", "RSA6", 
+  "RSD1", "RSD2", "RSD3", 
+  "RM1|RSA5", "RSD1|RSD3", "RSA5|RSA5",
+  "RTA1", 
+  "CMX1", "CMX2", "CMX2.5", "CMX3", "CMX4", "CMX5", "IRMX"), 1, 0))
+
+ownerstoremove <- properties %>%
+  group_by(owner_1) %>%
+  summarise(property_count = n(), .groups = "drop") %>%
+  filter(str_detect(owner_1, " LLC | LLC|REAL ESTATE|ASSOC|HALABUGI INC|INVESTMENT|CHURCH|1229-1247 NORTH 27TH ST|KINGS HIGHWAY|VILLAGE|
+  ACQUISITION|PARTNERS|2101 WASHINGTON AVENUE LL|CHAI NUTS LP|REALTY|PROPERTIES|SPECIAL PEOPLE IN NORTHEA|COMPANY|SPECIAL|
+  LAND TRUST|TRUST|SIENA PLACE PLANNED COMMU|NORRIS SQUARE NEIGHBORHOO|201-59 NORTH EIGHTH|PREPARATOR|INVESTORS|
+  POINT BREEZE|WPRE III L P|NATIONAL|ARCH V-TEMPLE 16TH STREET|NORTH FOURTH STREET|BANKERS TRUST|COMMONS AT POINT BREEZE|
+  VETERAN|PRESERVATION|CONDOMINIUM|199 HUNTING PARK|APARTMENT|HOLDINGS| L P|COURT|SCHOOL|SERVICES|HABITAT FOR HUMANITY|COMMITTEE|BAPTIST|
+  COLLEGE|ACQUISITION|DELEO|AMTRAK|RENTALS|PARTICIPATION|SPRING ARTS|SEPTA|WASHINGTON SQUARE|FAIRMOUNT PARK|PARKING|
+  ARCH VI - TEMPLE|THE LOFTS|FUND |WHARTON COURT|GROUP|PENTECOST|RAD DIVERSIFIED REIT INC|COMMONS|LIMITED|PENNA |FIRST|CONTRACTOR|POINT BREEZE|BOOTSTRAP|RITTENHOUSE|
+  HABITAT FOR HUMANITY|DELAWARE RIVER|ENTERPRISES|COMMUNITY|FOUNDATION|BELL TELEPHONE CO|CENTER|PARTNERS|DEVELOPMENT|
+  VET AFFAIRS|FEDERAL|WORKFORCE|PENNDOT|INVESTORS|GEORGE WOODWARD INC|HARRISON INC|JDJ FUND|AFFORDABLE|INTERSTATE| INC |BIO LUCKY STAR INC|LEANNA INC|ELEBAH INC|BENGEMINI CONSULTANTS INC|BUILDERS|KOREAN COMMUNITY DEVELOPM|DEVELOPERS|
+  PORTFOLIO|RESIDENTIAL|PHILLY|PROJECT|MANAGEMENT|UMOJA INC|ASSN INC|DELAWARE VALLEY|ARCH VI - TEMPLE N GRATZ|SUPPLY|LOFTS|STREET|OFFICE| LP|CITY|VENTURES|
+  UNITED STATES OF AMERICA|PHILA|NON PROFIT|ASSO|HOUSE|NEIGHBORHOOD|PATH INC|UNIV|HOUSING|PROPERTY|COMMONWEALTH|CONRAIL|COMMERCE|
+  VENTURES|UNITED|CORRIDOR|SQUARE|CIVIC|ARMY|SALVATION|PENNSYLVANIA|ADMINISTRATOR|TOWNHOMES|CBM|RENTAL|AMERICA INC|ST FRANCIS INN|HOMEOWNERSHIP|
+  INSTITUTE|RESOURCES|CONSTRUCTION|L P|TRANSPORTATION|CSX|DREXEL|PASSYUNK|COLLEGE|WISTERCOR INC|SIENA PLACE PUD|EQUITY| CAPITAL|EXPORT|STRAWBERRY MANSION|7-ELEVEN|KEEP PLUGGING THREE INC|OUTSOURCE 2000 INC|CHAI 18 INC|Y E R A INC |WORLD|ADMIN|U S OF AMERICA|AUTHORITY|
+  SEPTA|APTS| LTD|CORP")) %>%
+  pull(owner_1)  # Extract the list of owners to remove
+
+# Step 2: Filter out properties owned by these owners
+filtered_properties <- filtered_properties_resonly %>%
+  filter(!owner_1 %in% ownerstoremove)
+
+residential_properties <- filtered_properties %>% filter(is_residential == 1)
+```
+
+# Dashboard
+
+Our dashboard [Homestead Exemption Outreach Explorer](https://haoyu25.github.io/Philly-Homeowners/) is for Philly Stat 360 and potential outreach campaign managers to explore where properties predicted to be likely eligible for the Homestead Exemption program are located, as well as neighborhood profiles of areas. The threshold slider allows one to change the eligibility threshold of the model, where a lower value indicates a more lenient threshold which would include more properties in the census tract, while a higher value indicates a stricter threshold. The exported spreadsheet contains all addresses and owner names of the properties in the selected census tract, based on the chosen threshold level.
+
+Additional features include the address search bar function and the community sites toggle button. Community sites include places of worship, libraries, marketplaces and community centers, extracted from OpenStreetMap. These are potential locations that canvassers can reach out to and partner, including requesting support for disseminating information about the Homestead Exemption program, as well as putting up informational material such as posters in these locations.
 
 ```{r language_tract,echo=FALSE, message=FALSE, warning=FALSE, fig.show='hold'}
 language_data <- st_read("./Data/philly_language_dominance.geojson")
@@ -1565,8 +1655,6 @@ ggplot(language_data) +
     legend.title = element_text(size = 12) 
   )
 ```
-
-![](rmd_png/language.png)
 
 ```{r property_language, eval=FALSE}
 # First read in both datasets
