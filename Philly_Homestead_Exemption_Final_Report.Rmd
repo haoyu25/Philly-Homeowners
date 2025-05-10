@@ -1622,6 +1622,8 @@ Our dashboard [Homestead Exemption Outreach Explorer](https://haoyu25.github.io/
 
 Additional features include the address search bar function and the community sites toggle button. Community sites include places of worship, libraries, marketplaces and community centers, extracted from OpenStreetMap. These are potential locations that canvassers can reach out to and partner, including requesting support for disseminating information about the Homestead Exemption program, as well as putting up informational material such as posters in these locations.
 
+One of the census trait characteristics shown in the dashboard is most dominant non-English language spoken in the census tract, along with the percentage of residents who speak it. This can be particularly useful for campaign managers when organizing outreach strategies, such as ensuring canvassers who can speak that particular language conduct outreach in the area to more effectively raise awareness about the Homestead Exemption program to the potential homeowners.
+
 ```{r language_tract,echo=FALSE, message=FALSE, warning=FALSE, fig.show='hold'}
 language_data <- st_read("./Data/philly_language_dominance.geojson")
 
