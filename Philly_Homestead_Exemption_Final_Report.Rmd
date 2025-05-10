@@ -327,7 +327,7 @@ properties_full_pred_sf$lag_exemption <- lag.listw(lw, properties_full_pred_sf$e
 
 ## Predictors
 
-### Current Propertiy Characteristics {.tabset}
+### Current Property Characteristics {.tabset}
 
 We examine several property-level characteristics that may influence eligibility or participation in the Homestead Exemption program, including ownership status (e.g., corporate ownership) and whether the owner's mailing address matches the property address.
 
@@ -388,7 +388,7 @@ ggplot(residential_properties, aes(x = as.factor(owner_count), fill = as.factor(
 
 #### Rental Licenses {.unnumbered}
 
-Properties receiving the exemption tend not to hold active rental licenses.
+The Business Licenses & Commercial Activity Licenses dataset from OpenDataPhilly was combined using matching parcel ID. It was found that properties receiving the exemption tend not to hold active rental licenses.
 
 ```{r rental license, echo=FALSE, message=FALSE, warning=FALSE, fig.show='hold'}
 business_license<-st_read("Data/business_licenses.geojson")
@@ -480,7 +480,7 @@ ggplot(properties_commercial,
 
 ### Historical Property Characteristics {.tabset}
 
-We also examine the historical characteristics of properties, focusing on transfer history and assessment trends over time.
+We also examine the historical characteristics of properties, focusing on transfer history and assessment trends over time. The Real Estate Transfers dataset from OpenDataPhilly was combined using matching OPA Account Numbers, while the Assessment History dataset from OpenDataPhilly was combined using matching parcel IDs.
 
 Using residential property assessment data from 2015 to 2025, we compare properties with and without Homestead Exemptions in terms of their average market value and the variability (standard deviation) of that value. This allows us to assess whether exempt properties tend to be more stable or differ systematically in value.
 
@@ -590,7 +590,7 @@ yearly_residential_summary %>%
 
 #### Property Transfer Types {.unnumbered}
 
-Properties associated with "Deed - Deceased" and "Satisfaction of Mortgage" exhibited notably higher exemption rates. These deed types typically reflect intra-family transfers, inheritance, or mortgage settlements, aligning with common pathways to exemption eligibility. Logistic regression analysis confirmed deed type as a significant predictor of exemption status. Selected deed types can be encoded as binary features for use in predictive modeling.
+Property transfer deed types were also examined in relation to each property. Properties associated with "Deed - Deceased" and "Satisfaction of Mortgage" exhibited notably higher exemption rates. These deed types typically reflect intra-family transfers, inheritance, or mortgage settlements, aligning with common pathways to exemption eligibility. Logistic regression analysis confirmed deed type as a significant predictor of exemption status. Selected deed types can be encoded as binary features for use in predictive modeling.
 
 ```{r transfer_types_none, eval=FALSE}
 transfers2 <- fread("Data/RTT_SUMMARY.csv")
@@ -697,7 +697,7 @@ We draw on American Community Survey (ACS) 5-year estimates to include median ho
 
 Zoning composition is used to approximate the land use context of each tract. A higher proportion of residential zoning suggests more eligible properties, while mixed-use or commercially dominated areas may contain fewer owner-occupied homes.
 
-We also include tax balance data to capture financial stress at the neighborhood level. Specifically, we calculate the percentage of properties within each tract that have outstanding tax balances, including principal, penalties, and interest. While this is not a stated criterion for the Homestead Exemption, high levels of tax delinquency may reflect broader socioeconomic challenges—such as lower income, limited English proficiency, or low institutional trust—that influence exemption participation.
+We also include tax balance data to capture financial stress at the neighborhood level. This was using the Real Estate Tax Balances dataset from OpenDataPhilly, combining it with the property dataset using zip code. Specifically, we calculate the percentage of properties within each tract that have outstanding tax balances, including principal, penalties, and interest. While this is not a stated criterion for the Homestead Exemption, high levels of tax delinquency may reflect broader socioeconomic challenges—such as lower income, limited English proficiency, or low institutional trust—that influence exemption participation.
 
 #### Median Home Value {.unnumbered}
 
@@ -1728,3 +1728,6 @@ language_data %>%
   ) %>%
   kableExtra::row_spec(0, bold = TRUE, font_size = 19)  # Makes header larger
 ```
+
+# Conclusion
+This project aimed to identify homeowners in Philadelphia likely to be eligible but not yet enrolled for the Homestead Exemption program. Through the creation of a machine learning model and a web application dashboard, the hope is for this project to support a data-driven targeted outreach approach that is cost-efficient and able to allow homeowners to receive tax savings. It should be noted that this current model was unable to factor in existing enrollment of a property in the 10-year residential tax abatement or LOOP program, which would make the program ineligible for the Homestead Exemption program. If future access to this data from the Office of Property Assessment can be obtained, this may improve the model further. Nevertheless, the project has provided a model with strong potential and proven the immense benefits stood to be gained by currently unenrolled homeowners at a relatively low cost of outreach. Successfully identifying these homeowners can also allow the City of Philadelphia to provide further benefits such as home upgrading subsidies for these homeowners. Ultimately, it is hoped that ensuring more eligible homeowners are made aware of and can take up the Homeowner Exemption program can offer greater stability, preserve community ties and reduce financial burden for these homeowners. 
