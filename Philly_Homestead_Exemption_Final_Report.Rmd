@@ -154,7 +154,7 @@ There is a column `homestead_exemption` within this dataset which indicates the 
 properties <- fread("data/opa_properties_public.csv")
 census_tracts <- st_read("Data/phila_census1.gpkg")
 ```
-The dataset was filtered to include only properties that are under residential zoning codes. Properties with owners that are organizations and companies, such as owner names containing 'non profit' or 'office' or 'church', were also removed.
+The dataset was filtered to include only properties that are under residential zoning codes. Properties with owners that are organizations and companies, such as owner names containing 'non profit' or 'office' or 'church', were also removed. This is to align with the eligibility criteria of the Homestead Exemption program, which should be for individual homeowners who live in their own property.
 
 ```{r prepare property data, echo=FALSE, message=FALSE, warning=FALSE, fig.show='hold'}
 
@@ -1261,9 +1261,7 @@ ggplot() +
 
 ## DBSCAN
 
-DBSCAN hotspots = Regions where at least minPts points are located within a distance of eps from each other.
-It is stricter and tends to ignore areas that are high-density but more dispersed.
-Only dense clusters of closely packed points are identified.
+DBSCAN, Density-Based Spatial Clustering of Applications with Noise, was also used to explore the spatial distribution of missed exemption opportunities. It is a clustering algorithm that groups data points which are close to each other based on a density criterion. DBSCAN hotspots are regions where there is at least a specified minimum number of points are located within a defined radius (espsilon) from each other. In this case, the minimum number of points was set at 20 and the epsilon at 300 meters. This algorithm is stricter and tends to ignore areas that are high-density but more dispersed. Only dense clusters of closely packed points are identified.
 
 ```{r bdscan, echo=FALSE, message=FALSE, warning=FALSE, fig.show='hold'}
 fp_proj <- st_transform(fp_sf, 26918)
