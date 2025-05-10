@@ -99,11 +99,11 @@ options(scipen = 999)
 
 # Introduction
 
-This report provides a detailed workflow of the project on Homestead Tax Exemption entitlement assistance outreach, for the City of Philadelphia Office of Philly Stat 360 and Office of Information Technology. The aim of the project is design an algorithm-driven outreach campaign that can cost effectively identify homeowners who are likely to be eligible for the [Homestead Tax Exemption](https://www.phila.gov/services/payments-assistance-taxes/taxes/property-and-real-estate-taxes/get-real-estate-tax-relief/get-the-homestead-exemption/) but are not participating in the program. The project aims to allow our clients to understand where these properties are located, potential outreach strategies, and the associated costs and benefits.
+This report provides a detailed workflow of the project on Homestead Tax Exemption entitlement assistance outreach, for the City of Philadelphia Office of Philly Stat 360 and Office of Innovation and Technology. The aim of the project is design an algorithm-driven outreach campaign that can cost effectively identify homeowners who are likely to be eligible for the [Homestead Tax Exemption](https://www.phila.gov/services/payments-assistance-taxes/taxes/property-and-real-estate-taxes/get-real-estate-tax-relief/get-the-homestead-exemption/) but are not participating in the program. The project aims to allow our clients to understand where these properties are located, potential outreach strategies, and the associated costs and benefits.
 
 ![](rmd_png/icon1.0.png)
 
-These relevant properties who are identified as most likely eligible for the Homestead Exemption but not taking up the program,  are also thought to be more likely to be subject to “tangled titles,” or family-rental arrangements that require an affidavit to waive need for a rental license.
+These relevant properties who are identified as most likely eligible for the Homestead Exemption but not taking up the program, are also thought to be more likely to be subject to “tangled titles,” or family-rental arrangements that require an affidavit to waive need for a rental license.
 
 ## Background on Property Tax in Philadelphia
 
@@ -154,6 +154,7 @@ There is a column `homestead_exemption` within this dataset which indicates the 
 properties <- fread("data/opa_properties_public.csv")
 census_tracts <- st_read("Data/phila_census1.gpkg")
 ```
+The dataset was filtered to include only properties that are under residential zoning codes. Properties with owners that are organizations and companies, such as owner names containing 'non profit' or 'office' or 'church', were also removed.
 
 ```{r prepare property data, echo=FALSE, message=FALSE, warning=FALSE, fig.show='hold'}
 
@@ -943,7 +944,7 @@ numericVars %>%
   labs(title = "Correlation across numeric variables")  # Set plot title
 ```
 
-## Splite Dataset
+## Split Dataset
 
 Next, we split the dataset into two parts: 75% for training and 25% for testing. The training set is used to build models using various methods, while the testing set is used to evaluate model performance and identify the most accurate one.
 
@@ -1082,7 +1083,7 @@ print(xgb_imp_sorted)
 xgboost::xgb.plot.importance(xgb_imp, top_n = 30, main = "Top 20 Most Influential Variables")
 ```
 
-## Pridict 
+## Predict 
 
 We use the final model to predict eligibility for exemptions across all properties. We set a 50% probability threshold: properties with predicted probabilities below 50% are classified as ineligible, while those above 50% are classified as eligible. This allows us to compare our predictions with the current exemption status.
 
